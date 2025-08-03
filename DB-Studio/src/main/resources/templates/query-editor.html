@@ -39,6 +39,7 @@
             </div>
         </div>
 
+        <!-- Main Content -->
         <div class="col-md-9">
             <h4 th:text="${profile.jdbcUrl != null ? profile.jdbcUrl : profile.mongoUri}"></h4>
 
@@ -54,6 +55,7 @@
                           placeholder="Enter SQL or Mongo command" th:text="${sql}"></textarea>
                 <button class="btn btn-primary mb-2">Run Query</button>
             </form>
+
             <!-- Messages -->
             <p th:text="${error}" class="text-danger"></p>
             <p th:text="${message}" class="text-success"></p>
