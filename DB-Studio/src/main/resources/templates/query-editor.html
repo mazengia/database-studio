@@ -55,12 +55,10 @@
                           placeholder="Enter SQL or Mongo command" th:text="${sql}"></textarea>
                 <button class="btn btn-primary mb-2">Run Query</button>
             </form>
-
             <!-- Messages -->
             <p th:text="${error}" class="text-danger"></p>
             <p th:text="${message}" class="text-success"></p>
 
-            <!-- Query Results -->
             <!-- Query Results -->
             <div th:if="${results != null and !results.isEmpty()}">
                 <h6>Results</h6>
