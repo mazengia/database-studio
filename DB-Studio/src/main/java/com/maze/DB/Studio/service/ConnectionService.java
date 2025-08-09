@@ -141,6 +141,7 @@ public class ConnectionService {
         try (MongoClient client = createMongoClient(profile)) {
             MongoDatabase db = client.getDatabase(new ConnectionString(profile.getMongoUri()).getDatabase());
 
+            // collectionName|{"maintainer.employeeId":"EB-1009"} => fetch with filter
             String collectionName = query;
             Document filter = new Document(); // empty filter by default
 
