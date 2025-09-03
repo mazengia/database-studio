@@ -3,12 +3,17 @@ package com.maze.DB.Studio.controller;
 import com.maze.DB.Studio.model.ConnectionProfile;
 import com.maze.DB.Studio.service.ConnectionService;
 import lombok.RequiredArgsConstructor;
+import org.apache.poi.ss.usermodel.*;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.ByteArrayOutputStream;
 import java.util.List;
-
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 @Controller
 @RequiredArgsConstructor
 @RequestMapping("/db")
@@ -142,6 +147,58 @@ public class ConnectionController {
             if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
         } catch (Exception e) {
             model.addAttribute("error", "Query Error: " + e.getMessage());
+        }
+    }
+    @PostMapping("/generate-excel")
+    public ResponseEntity<byte[]> generateExcel(@ModelAttribute ConnectionProfile profile,
+                                                @RequestParam String sql) {
+        try {
+            List<List<Object>> results;
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                results = service.executeMongoQuery(profile, sql);
+            } else if (sql.trim().toLowerCase().startsWith("select")) {
+                results = service.executeSelectQuery(profile, sql);
+            } else {
+                return ResponseEntity.badRequest().body(null);
+            }
+
+            if (results.isEmpty()) {
+                return ResponseEntity.noContent().build();
+            }
+
+            Workbook workbook = new XSSFWorkbook();
+            Sheet sheet = workbook.createSheet("Query Results");
+
+            // Header row
+            Row header = sheet.createRow(0);
+            List<Object> columns = results.get(0);
+            for (int i = 0; i < columns.size(); i++) {
+                Cell cell = header.createCell(i);
+                cell.setCellValue(columns.get(i).toString());
+            }
+
+            // Data rows
+            for (int i = 1; i < results.size(); i++) {
+                Row row = sheet.createRow(i);
+                List<Object> rowData = results.get(i);
+                for (int j = 0; j < rowData.size(); j++) {
+                    Cell cell = row.createCell(j);
+                    cell.setCellValue(rowData.get(j) != null ? rowData.get(j).toString() : "");
+                }
+            }
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            workbook.write(out);
+            workbook.close();
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=query-results.xlsx")
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(out.toByteArray());
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
         }
     }
 }

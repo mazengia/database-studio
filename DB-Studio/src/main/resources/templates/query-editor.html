@@ -61,7 +61,8 @@
             <p th:text="${message}" class="text-success"></p>
 
             <!-- Query Results -->
-            <div th:if="${results != null}">
+            <!-- Query Results -->
+            <div th:if="${results != null and !results.isEmpty()}">
                 <h6>Results</h6>
                 <table class="table table-bordered table-sm">
                     <thead>
@@ -75,7 +76,19 @@
                     </tr>
                     </tbody>
                 </table>
+
+                <!-- Generate Excel Button -->
+                <form th:action="@{/db/generate-excel}" method="post" th:object="${profile}">
+                    <input type="hidden" th:field="*{driverClassName}">
+                    <input type="hidden" th:field="*{jdbcUrl}">
+                    <input type="hidden" th:field="*{username}">
+                    <input type="hidden" th:field="*{password}">
+                    <input type="hidden" th:field="*{mongoUri}">
+                    <input type="hidden" name="sql" th:value="${sql}">
+                    <button type="submit" class="btn btn-success mt-2">Generate Excel</button>
+                </form>
             </div>
+
         </div>
     </div>
 </div>
