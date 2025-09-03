@@ -20,6 +20,7 @@ public class ConnectionProfile {
     private String jdbcUrl;
     private String username;
     private String password;
+    private String mongoUri;
 }
 
 //ConnectionProfile oracleProfile = new ConnectionProfile(

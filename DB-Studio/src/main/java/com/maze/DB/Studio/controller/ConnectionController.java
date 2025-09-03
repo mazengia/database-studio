@@ -47,9 +47,7 @@ public class ConnectionController {
     }
 
     @PostMapping("/query")
-    public String query(@ModelAttribute ConnectionProfile profile,
-                        @RequestParam String sql,
-                        Model model) {
+    public String query(@ModelAttribute ConnectionProfile profile, @RequestParam String sql, Model model) {
 
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));

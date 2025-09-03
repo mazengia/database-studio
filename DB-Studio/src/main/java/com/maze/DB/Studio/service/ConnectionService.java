@@ -2,6 +2,10 @@ package com.maze.DB.Studio.service;
 
 import com.maze.DB.Studio.model.ConnectionProfile;
 import com.maze.DB.Studio.util.ResultSetUtil;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -15,13 +19,25 @@ public class ConnectionService {
 
     public boolean testConnection(ConnectionProfile profile) {
         try {
-            Class.forName(profile.getDriverClassName());
-            try (Connection c = DriverManager.getConnection(
-                    profile.getJdbcUrl(),
-                    profile.getUsername(),
-                    profile.getPassword())) {
-                return c != null && !c.isClosed();
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                // MongoDB connection test
+                MongoClientSettings settings = MongoClientSettings.builder()
+                        .applyConnectionString(new ConnectionString(profile.getMongoUri()))
+                        .build();
+                try (MongoClient client = MongoClients.create(settings)) {
+                    client.listDatabaseNames().first();
+                }
+            } else {
+                // JDBC connection test
+                Class.forName(profile.getDriverClassName());
+                try (Connection c = DriverManager.getConnection(
+                        profile.getJdbcUrl(),
+                        profile.getUsername(),
+                        profile.getPassword())) {
+                    return c != null && !c.isClosed();
+                }
             }
+            return true;
         } catch (Exception e) {
             e.printStackTrace();
             return false;
