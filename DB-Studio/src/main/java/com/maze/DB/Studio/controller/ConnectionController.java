@@ -94,4 +94,44 @@ public class ConnectionController {
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
         return "query-editor";
     }
+    @PostMapping("/backup")
+    public String backupDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
+        model.addAttribute("profile", profile);
+        model.addAttribute("tables", service.listTablesOrDatabases(profile));
+
+        boolean success = false;
+        try {
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                // MongoDB backup
+                success = service.backupMongo(profile);
+            } else {
+                success = service.backupJdbc(profile);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        model.addAttribute("message", success ? "Backup successful" : "Backup failed");
+        return "db-home";
+    }
+
+
+    @PostMapping("/restore")
+    public String restoreDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
+        model.addAttribute("profile", profile);
+        model.addAttribute("tables", service.listTablesOrDatabases(profile));
+
+        boolean success;
+        if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+            // MongoDB restore
+            success = service.restoreMongo(profile.getMongoUri(), "/path/to/backup/mongo");
+        } else {
+            // JDBC restore
+            success = service.restoreJdbc(profile, "/path/to/backup/jdbc");
+        }
+
+        model.addAttribute("message", success ? "Restore successful" : "Restore failed");
+        return "db-home";
+    }
+
 }

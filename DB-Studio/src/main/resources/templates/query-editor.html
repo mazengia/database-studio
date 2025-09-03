@@ -6,6 +6,47 @@
 </head>
 <body class="p-3">
 <div class="container-fluid">
+
+    <!-- Menu Bar -->
+    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-3">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">DB Studio</a>
+            <div class="collapse navbar-collapse">
+                <div class="ms-auto d-flex gap-2">
+                    <!-- Connect -->
+                    <form th:action="@{/db/connect}" method="post" th:object="${profile}" class="d-inline">
+                        <input type="hidden" th:field="*{driverClassName}">
+                        <input type="hidden" th:field="*{jdbcUrl}">
+                        <input type="hidden" th:field="*{username}">
+                        <input type="hidden" th:field="*{password}">
+                        <input type="hidden" th:field="*{mongoUri}">
+                        <button type="submit" class="btn btn-primary btn-sm">Connect</button>
+                    </form>
+
+                    <!-- Backup -->
+                    <form th:action="@{/db/backup}" method="post" th:object="${profile}" class="d-inline">
+                        <input type="hidden" th:field="*{driverClassName}">
+                        <input type="hidden" th:field="*{jdbcUrl}">
+                        <input type="hidden" th:field="*{username}">
+                        <input type="hidden" th:field="*{password}">
+                        <input type="hidden" th:field="*{mongoUri}">
+                        <button type="submit" class="btn btn-success btn-sm">Backup</button>
+                    </form>
+
+                    <!-- Restore -->
+                    <form th:action="@{/db/restore}" method="post" th:object="${profile}" class="d-inline">
+                        <input type="hidden" th:field="*{driverClassName}">
+                        <input type="hidden" th:field="*{jdbcUrl}">
+                        <input type="hidden" th:field="*{username}">
+                        <input type="hidden" th:field="*{password}">
+                        <input type="hidden" th:field="*{mongoUri}">
+                        <button type="submit" class="btn btn-warning btn-sm">Restore</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </nav>
+
     <div class="row">
         <!-- Sidebar -->
         <div class="col-md-3 border-end">
