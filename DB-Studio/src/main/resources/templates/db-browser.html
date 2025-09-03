@@ -13,6 +13,7 @@
         <form th:action="@{/db/columns}" method="post" style="display:inline;">
             <input type="hidden" th:field="*{driverClassName}" th:value="${profile.driverClassName}">
             <input type="hidden" th:field="*{jdbcUrl}" th:value="${profile.jdbcUrl}">
+            <input type="hidden" th:field="*{mongoUri}" th:value="${profile.mongoUri}">
             <input type="hidden" th:field="*{username}" th:value="${profile.username}">
             <input type="hidden" th:field="*{password}" th:value="${profile.password}">
             <input type="hidden" name="table" th:value="${t}">
