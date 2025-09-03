@@ -1,0 +1,14 @@
+<h3 th:text="'Columns of table ' + ${table}"></h3>
+<ul>
+    <li th:each="c : ${columns}" th:text="${c}"></li>
+</ul>
+
+<h4>Run Query</h4>
+<form th:action="@{/db/query}" method="post">
+    <input type="hidden" th:field="*{driverClassName}" th:value="${profile.driverClassName}">
+    <input type="hidden" th:field="*{jdbcUrl}" th:value="${profile.jdbcUrl}">
+    <input type="hidden" th:field="*{username}" th:value="${profile.username}">
+    <input type="hidden" th:field="*{password}" th:value="${profile.password}">
+    <textarea name="sql" class="form-control my-1" rows="5" th:text="'SELECT * FROM ' + ${table}"></textarea>
+    <button class="btn btn-success mt-1">Run</button>
+</form>

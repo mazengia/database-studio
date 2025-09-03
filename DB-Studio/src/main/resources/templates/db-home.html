@@ -1,0 +1,27 @@
+<h4>Databases / Tables</h4>
+<ul>
+    <li th:each="t : ${tables}">
+        <div th:if="${profile.jdbcUrl.toLowerCase().contains('databasename=')}">
+            <!-- It's a table: show columns -->
+            <form th:action="@{/db/columns}" method="post" style="display:inline;">
+                <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}">
+                <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}">
+                <input type="hidden" name="username" th:value="${profile.username}">
+                <input type="hidden" name="password" th:value="${profile.password}">
+                <input type="hidden" name="table" th:value="${t}">
+                <button class="btn btn-link p-0" type="submit" th:text="${t}"></button>
+            </form>
+        </div>
+        <div th:if="${!profile.jdbcUrl.toLowerCase().contains('databasename=')}">
+            <!-- It's a database: open query editor -->
+            <form th:action="@{/db/selectDatabase}" method="post" style="display:inline;">
+                <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}">
+                <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}">
+                <input type="hidden" name="username" th:value="${profile.username}">
+                <input type="hidden" name="password" th:value="${profile.password}">
+                <input type="hidden" name="database" th:value="${t}">
+                <button class="btn btn-link p-0" type="submit" th:text="${t}"></button>
+            </form>
+        </div>
+    </li>
+</ul>

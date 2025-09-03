@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>DB Studio Connect</title>
+    <link rel="stylesheet" href="/webjars/bootstrap/5.3.2/css/bootstrap.min.css">
+</head>
+<body class="p-4">
+<div class="container">
+    <h2 class="mb-3">Connect to Database</h2>
+    <form th:action="@{/db/connect}" method="post" th:object="${profile}">
+        <input class="form-control mb-2" placeholder="Driver Class" th:field="*{driverClassName}">
+        <input class="form-control mb-2" placeholder="JDBC URL" th:field="*{jdbcUrl}">
+        <input class="form-control mb-2" placeholder="Username" th:field="*{username}">
+        <input class="form-control mb-2" placeholder="Password" type="password" th:field="*{password}">
+        <button class="btn btn-primary mt-2">Connect</button>
+    </form>
+    <p th:text="${error}" class="text-danger mt-2"></p>
+</div>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>DB Studio Browser</title>
+    <link rel="stylesheet" href="/webjars/bootstrap/5.3.2/css/bootstrap.min.css">
+</head>
+<body class="p-4">
+<h2>Connected Database</h2>
+
+<h4>Tables</h4>
+<ul>
+    <li th:each="t : ${tables}">
+        <form th:action="@{/db/columns}" method="post" style="display:inline;">
+            <input type="hidden" th:field="*{driverClassName}" th:value="${profile.driverClassName}">
+            <input type="hidden" th:field="*{jdbcUrl}" th:value="${profile.jdbcUrl}">
+            <input type="hidden" th:field="*{username}" th:value="${profile.username}">
+            <input type="hidden" th:field="*{password}" th:value="${profile.password}">
+            <input type="hidden" name="table" th:value="${t}">
+            <button class="btn btn-link p-0" type="submit" th:text="${t}"></button>
+        </form>
+    </li>
+</ul>
+
+<h4>Views</h4>
+<ul>
+    <li th:each="v : ${views}" th:text="${v}"></li>
+</ul>
+
+<h4>Procedures</h4>
+<ul>
+    <li th:each="p : ${procedures}" th:text="${p}"></li>
+</ul>
+</body>
+</html>

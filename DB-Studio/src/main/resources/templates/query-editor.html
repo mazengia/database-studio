@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Query Editor</title>
+    <link rel="stylesheet" href="/webjars/bootstrap/5.3.2/css/bootstrap.min.css">
+    <style>
+        .sidebar { max-width: 250px; }
+        .sidebar ul { list-style-type: none; padding-left: 0; }
+        .sidebar ul li { padding: 5px 0; }
+        .sidebar ul li button { border: none; background: none; padding: 0; text-align: left; }
+    </style>
+</head>
+<body class="p-4">
+<div class="container-fluid">
+    <div class="row">
+        <!-- Left Sidebar: Tables -->
+        <div class="col-md-3 sidebar border-end">
+            <h4>Tables</h4>
+            <ul>
+                <li th:each="t : ${tables}">
+                    <form th:action="@{/db/columns}" method="post">
+                        <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}">
+                        <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}">
+                        <input type="hidden" name="username" th:value="${profile.username}">
+                        <input type="hidden" name="password" th:value="${profile.password}">
+                        <input type="hidden" name="table" th:value="${t}">
+                        <button class="btn btn-link p-0" type="submit" th:text="${t}"></button>
+                    </form>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Right Content: Query Editor & Results -->
+        <div class="col-md-9">
+            <h2>Query Editor for <span th:text="${profile.jdbcUrl}"></span></h2>
+
+            <form th:action="@{/db/query}" method="post" th:object="${profile}">
+                <input type="hidden" th:field="*{driverClassName}">
+                <input type="hidden" th:field="*{jdbcUrl}">
+                <input type="hidden" th:field="*{username}">
+                <input type="hidden" th:field="*{password}">
+                <textarea class="form-control mb-2" name="sql" rows="5"
+                          placeholder="Write your SQL query here" th:text="${sql}"></textarea>
+                <button class="btn btn-primary mb-3">Run Query</button>
+            </form>
+
+            <p th:text="${error}" class="text-danger"></p>
+            <p th:text="${message}" class="text-success"></p>
+
+            <div th:if="${results != null}">
+                <h4>Query Results</h4>
+                <table class="table table-bordered">
+                    <tr th:each="row : ${results}">
+                        <td th:each="cell : ${row}" th:text="${cell}"></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

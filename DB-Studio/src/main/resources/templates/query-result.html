@@ -1,0 +1,11 @@
+<h4>Query Results</h4>
+<p th:text="${sql}"></p>
+<table class="table table-bordered">
+    <tr th:if="${results.size() > 0}">
+        <th th:each="h : ${results[0]}" th:text="${h}"></th>
+    </tr>
+    <tr th:each="row : ${results}" th:if="${row != results[0]}">
+        <td th:each="col : ${row}" th:text="${col}"></td>
+    </tr>
+</table>
+<p th:text="${error}" class="text-danger"></p>
