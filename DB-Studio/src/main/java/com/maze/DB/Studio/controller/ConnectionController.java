@@ -33,7 +33,6 @@ public class ConnectionController {
         try {
             service.testConnection(profile);
 
-            // If successful, list tables/views/procedures
             model.addAttribute("profile", profile);
             model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
@@ -45,7 +44,6 @@ public class ConnectionController {
             return "db-home";
 
         } catch (Exception e) {
-            // Display human-readable error to the user
             model.addAttribute("error", e.getMessage());
             model.addAttribute("profile", profile);
             return "connect";
