@@ -12,7 +12,7 @@
         <h5>JDBC Connection</h5>
 
         <!-- Driver Dropdown -->
-        <select class="form-select mb-2" th:field="*{driverClassName}">
+        <select class="form-select mb-2" th:field="*{driverClassName}" id="driverSelect">
             <option value="">-- Select Driver --</option>
             <option value="org.h2.Driver">H2 Database</option>
             <option value="com.mysql.cj.jdbc.Driver">MySQL</option>
@@ -28,7 +28,24 @@
             <option value="net.sourceforge.jtds.jdbc.Driver">jTDS (SQL Server/Sybase)</option>
         </select>
 
-        <input class="form-control mb-2" placeholder="JDBC URL" th:field="*{jdbcUrl}">
+        <!-- JDBC URL template dropdown -->
+        <div class="mb-2">
+            <label class="form-label">JDBC URL</label>
+            <select id="jdbcTemplateSelect" class="form-select mb-2">
+                <option value="">-- Select Sample JDBC URL --</option>
+                <option value="jdbc:h2:mem:testdb">H2 (In-Memory)</option>
+                <option value="jdbc:mysql://host:3306/dbname">MySQL</option>
+                <option value="jdbc:postgresql://host:5432/dbname">PostgreSQL</option>
+                <option value="jdbc:oracle:thin:@host:1521:orcl">Oracle</option>
+                <option value="jdbc:sqlserver://host:1433;encrypt=false;instanceName=INSTANCE;databaseName=dbname;encrypt=false">
+                    SQL Server
+                </option>
+                <option value="jdbc:mariadb://host:3306/dbname">MariaDB</option>
+                <option value="jdbc:sqlite:/path/to/dbfile.db">SQLite</option>
+            </select>
+            <input id="jdbcUrlInput" class="form-control" placeholder="JDBC URL" th:field="*{jdbcUrl}">
+        </div>
+
         <input class="form-control mb-2" placeholder="Username" th:field="*{username}">
         <input class="form-control mb-2" placeholder="Password" type="password" th:field="*{password}">
 
@@ -36,19 +53,47 @@
 
         <!-- MongoDB Section -->
         <h5>MongoDB Connection</h5>
-        <input class="form-control mb-2" placeholder="MongoDB URI" th:field="*{mongoUri}">
+        <div class="mb-2">
+            <label class="form-label">MongoDB URI</label>
+            <!-- MongoDB template dropdown -->
+            <select id="mongoTemplateSelect" class="form-select mb-2">
+                <option value="">-- Select Sample MongoDB URI --</option>
+                <option value="mongodb://host:27017/dbname">Standalone</option>
+                <option value="mongodb://user:pass@host:27017/dbname">With Authentication</option>
+                <option value="mongodb://host1:27017,host2:27017,host3:27017/dbname?replicaSet=rs0">Replica Set</option>
+                <option value="mongodb+srv://user:pass@cluster0.mongodb.net/dbname">MongoDB Atlas (SRV)</option>
+            </select>
+            <input id="mongoUriInput" class="form-control" placeholder="MongoDB URI" th:field="*{mongoUri}">
+        </div>
 
         <button class="btn btn-primary mt-2">Connect</button>
     </form>
 
-    <!-- Error message -->
-    <p th:if="${error}" th:text="${error}" class="text-danger mt-2"></p>
-
+    <!-- Error message --><!-- Error message -->
+    <div th:if="${error}" class="alert alert-danger mt-2" th:text="${error}"></div>
     <!-- Info / guidance -->
     <p class="mt-3 text-muted">
-        For JDBC: Select Driver Class, enter JDBC URL, Username, and Password.<br>
-        For MongoDB: Fill only MongoDB URI (e.g., mongodb://user:pass@localhost:27017/dbname).
+        For JDBC: Select Driver Class, choose a sample JDBC URL (editable), enter Username, and Password.<br>
+        For MongoDB: Select a sample URI (editable) or type your own.
     </p>
 </div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        // JDBC auto-fill
+        const jdbcSelect = document.getElementById("jdbcTemplateSelect");
+        const jdbcInput = document.getElementById("jdbcUrlInput");
+        jdbcSelect.addEventListener("change", function () {
+            if (this.value) jdbcInput.value = this.value;
+        });
+
+        // MongoDB auto-fill
+        const mongoSelect = document.getElementById("mongoTemplateSelect");
+        const mongoInput = document.getElementById("mongoUriInput");
+        mongoSelect.addEventListener("change", function () {
+            if (this.value) mongoInput.value = this.value;
+        });
+    });
+</script>
 </body>
 </html>

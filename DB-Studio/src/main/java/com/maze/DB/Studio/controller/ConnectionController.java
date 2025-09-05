@@ -23,25 +23,31 @@ public class ConnectionController {
         }
         return "connect";
     }
-
     @PostMapping("/connect")
     public String connect(@ModelAttribute ConnectionProfile profile, Model model) {
-        if (!service.testConnection(profile)) {
-            model.addAttribute("error", "Connection failed! Check JDBC/Mongo URI, username, driver.");
+        try {
+            service.testConnection(profile);
+
+            // If successful, list tables/views/procedures
+            model.addAttribute("profile", profile);
+            model.addAttribute("tables", service.listTablesOrDatabases(profile));
+
+            if (profile.getMongoUri() == null || profile.getMongoUri().isEmpty()) {
+                model.addAttribute("views", service.listViews(profile));
+                model.addAttribute("procedures", service.listStoredProcedures(profile));
+            }
+
+            return "db-home";
+
+        } catch (Exception e) {
+            // Display human-readable error to the user
+            model.addAttribute("error", e.getMessage());
             model.addAttribute("profile", profile);
             return "connect";
         }
-
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-
-        if (profile.getMongoUri() == null || profile.getMongoUri().isEmpty()) {
-            model.addAttribute("views", service.listViews(profile));
-            model.addAttribute("procedures", service.listStoredProcedures(profile));
-        }
-
-        return "db-home";
     }
+
+
 
     @PostMapping("/selectDatabase")
     public String selectDatabase(@ModelAttribute ConnectionProfile profile,

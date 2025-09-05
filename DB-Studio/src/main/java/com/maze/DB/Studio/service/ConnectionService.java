@@ -4,6 +4,8 @@ import com.maze.DB.Studio.model.ConnectionProfile;
 import com.maze.DB.Studio.util.ResultSetUtil;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoSecurityException;
+import com.mongodb.MongoTimeoutException;
 import com.mongodb.client.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,24 +24,38 @@ public class ConnectionService {
     @Value("${db.backup.folder}")
     private String backupFolder;
     // ----------------- Test Connection -----------------
-    public boolean testConnection(ConnectionProfile profile) {
-        try {
-            if (isMongo(profile)) {
-                try (MongoClient client = createMongoClient(profile)) {
-                    client.listDatabaseNames().first();
-                }
-            } else {
+    public void testConnection(ConnectionProfile profile) throws Exception {
+        if (isMongo(profile)) {
+            try (MongoClient client = createMongoClient(profile)) {
+                client.listDatabaseNames().first(); // Will throw if connection fails
+            } catch (MongoSecurityException e) {
+                throw new Exception("MongoDB authentication failed. Please check your username and password.");
+            } catch (MongoTimeoutException e) {
+                throw new Exception("Cannot reach MongoDB server. Check the host, port, and network.");
+            }
+        } else {
+            try {
                 Class.forName(profile.getDriverClassName());
                 try (Connection conn = DriverManager.getConnection(profile.getJdbcUrl(), profile.getUsername(), profile.getPassword())) {
-                    return conn != null && !conn.isClosed();
+                    if (conn == null || conn.isClosed()) {
+                        throw new Exception("Failed to establish JDBC connection.");
+                    }
                 }
+            } catch (SQLException e) {
+                String msg = e.getMessage().toLowerCase();
+                if (msg.contains("login failed") || msg.contains("access denied")) {
+                    throw new Exception("Database login failed. Please check your username and password.");
+                } else if (msg.contains("unknownhostexception") || msg.contains("connection refused")) {
+                    throw new Exception("Cannot reach the database server. Check host, port, and network.");
+                } else {
+                    throw new Exception("Database connection error: " + e.getMessage());
+                }
+            } catch (ClassNotFoundException e) {
+                throw new Exception("JDBC Driver not found. Please check your driver selection.");
             }
-            return true;
-        } catch (Exception e) {
-            e.printStackTrace();
-            return false;
         }
     }
+
     public List<String> listTablesOrDatabases(ConnectionProfile profile) {
         List<String> result = new ArrayList<>();
 
@@ -444,6 +460,28 @@ public class ConnectionService {
         return "unknown_db";
     }
 
+    public String getFriendlyErrorMessage(Exception e, ConnectionProfile profile) {
+        String msg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
 
+        if (isMongo(profile)) {
+            if (msg.contains("auth") || msg.contains("authentication")) {
+                return "MongoDB authentication failed. Please check your username/password.";
+            }
+            if (msg.contains("host") || msg.contains("connection refused")) {
+                return "Cannot reach MongoDB server. Check the host and port.";
+            }
+        } else {
+            if (msg.contains("unknownhostexception")) {
+                return "Cannot resolve database host. Check the server address.";
+            }
+            if (msg.contains("access denied") || msg.contains("login failed")) {
+                return "Database login failed. Check your username and password.";
+            }
+            if (msg.contains("timeout") || msg.contains("connection refused")) {
+                return "Cannot reach the database server. Check the host, port, and network.";
+            }
+        }
+        return "Connection failed. Please verify your details and try again.";
+    }
 
 }
