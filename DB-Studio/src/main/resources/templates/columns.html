@@ -4,17 +4,20 @@
     <title>Query Editor</title>
     <link rel="stylesheet" href="/webjars/bootstrap/5.3.2/css/bootstrap.min.css">
     <style>
-        .sidebar { max-width: 250px; }
+        .sidebar { max-width: 300px; }
         .sidebar ul { list-style-type: none; padding-left: 0; }
         .sidebar ul li { padding: 5px 0; }
         .sidebar ul li button { border: none; background: none; padding: 0; text-align: left; }
+        .columns { margin-top: 20px; }
+        .columns h5 { margin-bottom: 10px; }
     </style>
 </head>
 <body class="p-4">
 <div class="container-fluid">
     <div class="row">
-        <!-- Left Sidebar: Tables -->
+        <!-- Left Sidebar: Tables + Columns -->
         <div class="col-md-3 sidebar border-end">
+            <!-- Tables List -->
             <h4>Tables</h4>
             <ul>
                 <li th:each="t : ${tables}">
@@ -28,43 +31,53 @@
                     </form>
                 </li>
             </ul>
+
+            <!-- Columns List of selected table -->
+            <div class="columns" th:if="${table != null}">
+                <h5 th:text="'Columns of ' + ${table}"></h5>
+                <ul>
+                    <li th:each="c : ${tableColumns}" th:text="${c}"></li>
+                </ul>
+            </div>
         </div>
 
-        <!-- Right Content: Query Editor & Columns/Results -->
+        <!-- Right Content: Query Editor & Results -->
         <div class="col-md-9">
             <h2>Query Editor for <span th:text="${profile.jdbcUrl}"></span></h2>
 
-            <!-- Display Columns if selected -->
-            <div th:if="${table != null}">
-                <h4 th:text="'Columns of table ' + ${table}"></h4>
-                <ul>
-                    <li th:each="c : ${columns}" th:text="${c}"></li>
-                </ul>
-            </div>
-
             <!-- Query Form -->
-            <form th:action="@{/db/query}" method="post" th:object="${profile}">
-                <input type="hidden" th:field="*{driverClassName}" />
-                <input type="hidden" th:field="*{jdbcUrl}" />
-                <input type="hidden" th:field="*{username}" />
-                <input type="hidden" th:field="*{password}" />
-                <textarea class="form-control mb-2" name="sql" rows="5"
-                          placeholder="Write your SQL query here" th:text="${sql}"></textarea>
-                <button class="btn btn-primary mb-3">Run Query</button>
+            <form th:action="@{/db/columns}" method="post" th:object="${profile}">
+                <input type="hidden" th:field="*{driverClassName}">
+                <input type="hidden" th:field="*{jdbcUrl}">
+                <input type="hidden" th:field="*{username}">
+                <input type="hidden" th:field="*{password}">
+                <input type="hidden" name="table" th:value="${table}">
+                <textarea class="form-control mb-2" name="sql" rows="5" th:text="${sql}"></textarea>
+                <button class="btn btn-primary mb-2">Run Query</button>
             </form>
 
+
+            <!-- Display error/message -->
             <p th:text="${error}" class="text-danger"></p>
             <p th:text="${message}" class="text-success"></p>
 
-            <!-- Query Results -->
+            <!-- Query Results on the same page, below textarea -->
             <div th:if="${results != null}">
                 <h4>Query Results</h4>
                 <table class="table table-bordered">
+                    <thead>
+                    <tr>
+                        <th th:each="col : ${resultColumns}" th:text="${col}"></th>
+                    </tr>
+                    </thead>
+                    <tbody>
                     <tr th:each="row : ${results}">
                         <td th:each="cell : ${row}" th:text="${cell}"></td>
                     </tr>
+                    </tbody>
                 </table>
             </div>
+
         </div>
     </div>
 </div>

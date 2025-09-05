@@ -1,103 +1,79 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
-    <title>Query Editor</title>
+    <title>DB Studio - Query Editor</title>
     <link rel="stylesheet" href="/webjars/bootstrap/5.3.2/css/bootstrap.min.css">
+    <style>
+        .sidebar { max-width: 300px; }
+        .sidebar ul { list-style: none; padding-left: 0; }
+        .sidebar ul li { padding: 5px 0; }
+        .sidebar ul li button { border: none; background: none; padding: 0; text-align: left; }
+        .columns { margin-top: 20px; }
+        textarea { font-family: monospace; }
+    </style>
 </head>
 <body class="p-3">
 <div class="container-fluid">
-
-    <!-- Menu Bar -->
-    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-3">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#">DB Studio</a>
-            <div class="collapse navbar-collapse">
-                <div class="ms-auto d-flex gap-2">
-                    <!-- Connect -->
-                    <form th:action="@{/db/connect}" method="post" th:object="${profile}" class="d-inline">
-                        <input type="hidden" th:field="*{driverClassName}">
-                        <input type="hidden" th:field="*{jdbcUrl}">
-                        <input type="hidden" th:field="*{username}">
-                        <input type="hidden" th:field="*{password}">
-                        <input type="hidden" th:field="*{mongoUri}">
-                        <button type="submit" class="btn btn-primary btn-sm">Connect</button>
-                    </form>
-
-                    <!-- Backup -->
-                    <form th:action="@{/db/backup}" method="post" th:object="${profile}" class="d-inline">
-                        <input type="hidden" th:field="*{driverClassName}">
-                        <input type="hidden" th:field="*{jdbcUrl}">
-                        <input type="hidden" th:field="*{username}">
-                        <input type="hidden" th:field="*{password}">
-                        <input type="hidden" th:field="*{mongoUri}">
-                        <button type="submit" class="btn btn-success btn-sm">Backup</button>
-                    </form>
-
-                    <!-- Restore -->
-                    <form th:action="@{/db/restore}" method="post" th:object="${profile}" class="d-inline">
-                        <input type="hidden" th:field="*{driverClassName}">
-                        <input type="hidden" th:field="*{jdbcUrl}">
-                        <input type="hidden" th:field="*{username}">
-                        <input type="hidden" th:field="*{password}">
-                        <input type="hidden" th:field="*{mongoUri}">
-                        <button type="submit" class="btn btn-warning btn-sm">Restore</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </nav>
-
     <div class="row">
         <!-- Sidebar -->
-        <div class="col-md-3 border-end">
-            <h5>Tables / Collections</h5>
-            <ul class="list-unstyled">
+        <div class="col-md-3 border-end sidebar">
+            <h5>Tables</h5>
+            <ul>
                 <li th:each="t : ${tables}">
                     <form th:action="@{/db/columns}" method="post" th:object="${profile}">
                         <input type="hidden" th:field="*{driverClassName}">
                         <input type="hidden" th:field="*{jdbcUrl}">
                         <input type="hidden" th:field="*{username}">
                         <input type="hidden" th:field="*{password}">
-                        <input type="hidden" th:field="*{mongoUri}">
                         <input type="hidden" name="table" th:value="${t}">
                         <button type="submit" class="btn btn-link p-0" th:text="${t}"></button>
                     </form>
                 </li>
             </ul>
+
+            <div class="columns" th:if="${tableColumns != null}">
+                <h6 th:text="'Columns of ' + ${table}"></h6>
+                <ul>
+                    <li th:each="c : ${tableColumns}" th:text="${c}"></li>
+                </ul>
+            </div>
         </div>
 
         <!-- Main Content -->
         <div class="col-md-9">
             <h4 th:text="${profile.jdbcUrl != null ? profile.jdbcUrl : profile.mongoUri}"></h4>
 
-            <!-- Columns -->
-            <div th:if="${columns != null}">
-                <h6 th:text="'Columns of ' + ${table}"></h6>
-                <ul><li th:each="c : ${columns}" th:text="${c}"></li></ul>
-            </div>
-
-            <!-- Query Box -->
+            <!-- Query Form -->
             <form th:action="@{/db/query}" method="post" th:object="${profile}">
                 <input type="hidden" th:field="*{driverClassName}">
                 <input type="hidden" th:field="*{jdbcUrl}">
                 <input type="hidden" th:field="*{username}">
                 <input type="hidden" th:field="*{password}">
                 <input type="hidden" th:field="*{mongoUri}">
+                <input type="hidden" name="table" th:value="${table}">
                 <textarea class="form-control mb-2" name="sql" rows="5"
-                          placeholder="Enter SQL or Mongo collection" th:text="${sql}"></textarea>
-                <button class="btn btn-primary">Run</button>
+                          placeholder="Enter SQL or Mongo command" th:text="${sql}"></textarea>
+                <button class="btn btn-primary mb-2">Run Query</button>
             </form>
 
+            <!-- Messages -->
             <p th:text="${error}" class="text-danger"></p>
             <p th:text="${message}" class="text-success"></p>
 
-            <!-- Results -->
+            <!-- Query Results -->
             <div th:if="${results != null}">
                 <h6>Results</h6>
                 <table class="table table-bordered table-sm">
+                    <thead>
+                    <tr>
+                        <th th:each="col : ${resultColumns}" th:text="${col}"></th>
+                    </tr>
+                    </thead>
+                    <tbody>
                     <tr th:each="row : ${results}">
                         <td th:each="cell : ${row}" th:text="${cell}"></td>
                     </tr>
+                    </tbody>
                 </table>
             </div>
         </div>

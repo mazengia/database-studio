@@ -18,7 +18,9 @@ public class ConnectionController {
 
     @GetMapping({"", "/"})
     public String home(Model model) {
-        if (!model.containsAttribute("profile")) model.addAttribute("profile", new ConnectionProfile());
+        if (!model.containsAttribute("profile")) {
+            model.addAttribute("profile", new ConnectionProfile());
+        }
         return "connect";
     }
 
@@ -33,44 +35,12 @@ public class ConnectionController {
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
-        // Only run these for JDBC (not Mongo)
         if (profile.getMongoUri() == null || profile.getMongoUri().isEmpty()) {
             model.addAttribute("views", service.listViews(profile));
             model.addAttribute("procedures", service.listStoredProcedures(profile));
         }
 
         return "db-home";
-    }
-
-
-    @PostMapping("/columns")
-    public String columns(@ModelAttribute ConnectionProfile profile,
-                          @RequestParam String table, Model model) {
-        model.addAttribute("profile", profile);
-        model.addAttribute("table", table);
-        model.addAttribute("columns", service.listColumns(profile, table));
-        return "columns";
-    }
-
-    @PostMapping("/query")
-    public String query(@ModelAttribute ConnectionProfile profile,
-                        @RequestParam String sql, Model model) {
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        try {
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-                model.addAttribute("results", service.executeMongoQuery(profile, sql));
-            } else if (sql.trim().toLowerCase().startsWith("select")) {
-                model.addAttribute("results", service.executeSelectQuery(profile, sql));
-            } else {
-                int affected = service.executeUpdateQuery(profile, sql);
-                model.addAttribute("message", affected + " row(s) affected.");
-            }
-            model.addAttribute("sql", sql);
-        } catch (Exception e) {
-            model.addAttribute("error", "Query Error: " + e.getMessage());
-        }
-        return "query-editor";
     }
 
     @PostMapping("/selectDatabase")
@@ -94,44 +64,78 @@ public class ConnectionController {
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
         return "query-editor";
     }
+
     @PostMapping("/backup")
     public String backupDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
-        boolean success = false;
-        try {
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-                // MongoDB backup
-                success = service.backupMongo(profile);
-            } else {
-                success = service.backupJdbc(profile);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        boolean success = profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()
+                ? service.backupMongo(profile)
+                : service.backupJdbc(profile);
 
         model.addAttribute("message", success ? "Backup successful" : "Backup failed");
         return "db-home";
     }
-
 
     @PostMapping("/restore")
     public String restoreDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
-        boolean success;
-        if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-            // MongoDB restore
-            success = service.restoreMongo(profile.getMongoUri(), "/path/to/backup/mongo");
-        } else {
-            // JDBC restore
-            success = service.restoreJdbc(profile, "/path/to/backup/jdbc");
-        }
+        boolean success = profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()
+                ? service.restoreMongo(profile.getMongoUri(), "/path/to/backup/mongo")
+                : service.restoreJdbc(profile, "/path/to/backup/jdbc");
 
         model.addAttribute("message", success ? "Restore successful" : "Restore failed");
         return "db-home";
     }
 
+    @PostMapping("/columns")
+    public String showColumns(@ModelAttribute ConnectionProfile profile,
+                              @RequestParam String table,
+                              @RequestParam(required = false) String sql,
+                              Model model) {
+        model.addAttribute("profile", profile);
+        model.addAttribute("tables", service.listTablesOrDatabases(profile));
+        model.addAttribute("table", table);
+        model.addAttribute("tableColumns", service.listColumns(profile, table));
+
+        if (sql != null && !sql.trim().isEmpty()) {
+            runQueryInternal(profile, sql, model);
+        }
+
+        return "columns"; // render columns page
+    }
+
+    @PostMapping("/query")
+    public String runQuery(@ModelAttribute ConnectionProfile profile,
+                           @RequestParam String sql,
+                           Model model) {
+        model.addAttribute("profile", profile);
+        model.addAttribute("tables", service.listTablesOrDatabases(profile));
+        runQueryInternal(profile, sql, model);
+        return "query-editor";
+    }
+
+    // Internal method to avoid duplicate code
+    private void runQueryInternal(ConnectionProfile profile, String sql, Model model) {
+        model.addAttribute("sql", sql);
+        try {
+            List<List<Object>> results;
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                results = service.executeMongoQuery(profile, sql);
+            } else if (sql.trim().toLowerCase().startsWith("select")) {
+                results = service.executeSelectQuery(profile, sql);
+            } else {
+                int affected = service.executeUpdateQuery(profile, sql);
+                model.addAttribute("message", affected + " row(s) affected.");
+                return;
+            }
+            model.addAttribute("results", results);
+            if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
+        } catch (Exception e) {
+            model.addAttribute("error", "Query Error: " + e.getMessage());
+        }
+    }
 }

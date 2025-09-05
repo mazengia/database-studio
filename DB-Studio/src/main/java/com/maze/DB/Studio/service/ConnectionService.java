@@ -40,13 +40,11 @@ public class ConnectionService {
             return false;
         }
     }
-
-    // ----------------- List Tables / Databases -----------------
     public List<String> listTablesOrDatabases(ConnectionProfile profile) {
         List<String> result = new ArrayList<>();
 
         try {
-            // --- Handle MongoDB first ---
+            // --- MongoDB ---
             if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
                 ConnectionString connString = new ConnectionString(profile.getMongoUri());
                 MongoClientSettings settings = MongoClientSettings.builder()
@@ -55,28 +53,75 @@ public class ConnectionService {
 
                 try (MongoClient client = MongoClients.create(settings)) {
                     if (connString.getDatabase() == null) {
-                        // List databases
+                        // List all databases
                         client.listDatabaseNames().forEach(result::add);
                     } else {
-                        // List collections in database
+                        // List all collections in the database
                         client.getDatabase(connString.getDatabase())
                                 .listCollectionNames()
                                 .forEach(result::add);
                     }
                 }
-                return result; // Return early for Mongo
+                return result;
             }
 
-            // --- JDBC code ONLY runs if Mongo is not used ---
+            // --- JDBC ---
             Class.forName(profile.getDriverClassName());
             try (Connection conn = DriverManager.getConnection(
                     profile.getJdbcUrl(),
                     profile.getUsername(),
                     profile.getPassword())) {
 
-                DatabaseMetaData meta = conn.getMetaData();
-                try (ResultSet rs = meta.getTables(null, null, "%", new String[]{"TABLE"})) {
-                    while (rs.next()) result.add(rs.getString("TABLE_NAME"));
+                DatabaseMetaData metaData = conn.getMetaData();
+                String dbProduct = metaData.getDatabaseProductName().toLowerCase();
+                String catalog = conn.getCatalog(); // current database
+                String schemaPattern = null;
+
+                // --- Decide what to list ---
+                boolean listDatabases = false;
+                if (profile.getJdbcUrl().toLowerCase().contains("databasename=")) {
+                    listDatabases = false; // URL points to a database → list tables
+                } else if (dbProduct.contains("sql server") || dbProduct.contains("mysql")) {
+                    listDatabases = true; // SQL Server / MySQL servers → list databases
+                }
+
+                if (listDatabases) {
+                    if (dbProduct.contains("sql server")) {
+                        try (ResultSet rs = conn.createStatement().executeQuery("SELECT name FROM sys.databases")) {
+                            while (rs.next()) result.add(rs.getString("name"));
+                        }
+                    } else if (dbProduct.contains("mysql")) {
+                        try (ResultSet rs = conn.createStatement().executeQuery("SHOW DATABASES")) {
+                            while (rs.next()) result.add(rs.getString(1));
+                        }
+                    } else if (dbProduct.contains("postgresql")) {
+                        try (ResultSet rs = conn.createStatement().executeQuery("SELECT datname FROM pg_database WHERE datistemplate = false")) {
+                            while (rs.next()) result.add(rs.getString(1));
+                        }
+                    } else {
+                        // fallback: catalog list
+                        try (ResultSet rs = metaData.getCatalogs()) {
+                            while (rs.next()) result.add(rs.getString("TABLE_CAT"));
+                        }
+                    }
+                } else {
+                    // List tables/views in current database
+                    if (dbProduct.contains("oracle") || dbProduct.contains("db2")) {
+                        schemaPattern = profile.getUsername().toUpperCase();
+                    } else if (dbProduct.contains("postgresql")) {
+                        schemaPattern = "public";
+                    } else if (dbProduct.contains("sql server")) {
+                        schemaPattern = "dbo";
+                    }
+
+                    try (ResultSet rs = metaData.getTables(catalog, schemaPattern, "%", new String[]{"TABLE", "VIEW"})) {
+                        while (rs.next()) {
+                            String tableName = rs.getString("TABLE_NAME");
+                            if (tableName != null && !tableName.toUpperCase().startsWith("SYS")) {
+                                result.add(tableName);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -366,17 +411,41 @@ public class ConnectionService {
     }
 
     private String extractDatabase(String jdbcUrl) {
-        if (jdbcUrl.toLowerCase().contains("databasename=")) {
-            String[] parts = jdbcUrl.split(";");
-            for (String part : parts) {
-                if (part.toLowerCase().startsWith("databasename=")) {
-                    return part.split("=")[1];
+        jdbcUrl = jdbcUrl.toLowerCase();
+
+        try {
+            if (jdbcUrl.contains("sqlserver")) {
+                int idx = jdbcUrl.indexOf("databasename=");
+                if (idx > -1) {
+                    String part = jdbcUrl.substring(idx + "databasename=".length());
+                    return part.contains(";") ? part.substring(0, part.indexOf(";")) : part;
+                }
+            } else if (jdbcUrl.contains("mysql")) {
+                // Example: jdbc:mysql://localhost:3306/salary_upload?useSSL=false
+                String afterSlash = jdbcUrl.substring(jdbcUrl.indexOf("//") + 2);
+                afterSlash = afterSlash.substring(afterSlash.indexOf("/") + 1);
+                return afterSlash.contains("?") ? afterSlash.substring(0, afterSlash.indexOf("?")) : afterSlash;
+            } else if (jdbcUrl.contains("postgresql")) {
+                // Example: jdbc:postgresql://localhost:5432/salary_upload
+                String afterSlash = jdbcUrl.substring(jdbcUrl.indexOf("//") + 2);
+                afterSlash = afterSlash.substring(afterSlash.indexOf("/") + 1);
+                return afterSlash.contains("?") ? afterSlash.substring(0, afterSlash.indexOf("?")) : afterSlash;
+            } else if (jdbcUrl.contains("oracle")) {
+                // Example: jdbc:oracle:thin:@localhost:1521/salary_upload
+                if (jdbcUrl.contains("@")) {
+                    String afterAt = jdbcUrl.substring(jdbcUrl.indexOf("@") + 1);
+                    if (afterAt.contains("/")) {
+                        return afterAt.substring(afterAt.indexOf("/") + 1);
+                    }
                 }
             }
+        } catch (Exception e) {
+            // fallback
         }
-        // fallback
-        return "";
+
+        return "unknown_db";
     }
+
 
 
 }
