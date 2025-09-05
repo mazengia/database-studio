@@ -291,7 +291,6 @@ public class ConnectionService {
     }
 
     private String extractMongoDatabase(String mongoUri) {
-        // mongodb://user:pass@host:port/db
         String[] parts = mongoUri.split("/");
         return parts[parts.length - 1].split("\\?")[0]; // remove any query params
     }
