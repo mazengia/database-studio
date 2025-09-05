@@ -105,7 +105,7 @@ public class ConnectionController {
             runQueryInternal(profile, sql, model);
         }
 
-        return "columns"; // render columns page
+        return "columns";
     }
 
     @PostMapping("/query")
