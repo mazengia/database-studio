@@ -10,7 +10,24 @@
     <form th:action="@{/db/connect}" method="post" th:object="${profile}">
         <!-- JDBC Section -->
         <h5>JDBC Connection</h5>
-        <input class="form-control mb-2" placeholder="Driver Class" th:field="*{driverClassName}">
+
+        <!-- Driver Dropdown -->
+        <select class="form-select mb-2" th:field="*{driverClassName}">
+            <option value="">-- Select Driver --</option>
+            <option value="org.h2.Driver">H2 Database</option>
+            <option value="com.mysql.cj.jdbc.Driver">MySQL</option>
+            <option value="org.postgresql.Driver">PostgreSQL</option>
+            <option value="oracle.jdbc.OracleDriver">Oracle</option>
+            <option value="com.microsoft.sqlserver.jdbc.SQLServerDriver">SQL Server</option>
+            <option value="org.mariadb.jdbc.Driver">MariaDB</option>
+            <option value="com.ibm.db2.jcc.DB2Driver">IBM DB2</option>
+            <option value="org.sqlite.JDBC">SQLite</option>
+            <option value="com.sybase.jdbc4.jdbc.SybDriver">Sybase</option>
+            <option value="com.sap.db.jdbc.Driver">SAP HANA</option>
+            <option value="org.apache.derby.jdbc.EmbeddedDriver">Apache Derby</option>
+            <option value="net.sourceforge.jtds.jdbc.Driver">jTDS (SQL Server/Sybase)</option>
+        </select>
+
         <input class="form-control mb-2" placeholder="JDBC URL" th:field="*{jdbcUrl}">
         <input class="form-control mb-2" placeholder="Username" th:field="*{username}">
         <input class="form-control mb-2" placeholder="Password" type="password" th:field="*{password}">
@@ -29,7 +46,7 @@
 
     <!-- Info / guidance -->
     <p class="mt-3 text-muted">
-        For JDBC: Fill Driver Class, JDBC URL, Username, and Password.<br>
+        For JDBC: Select Driver Class, enter JDBC URL, Username, and Password.<br>
         For MongoDB: Fill only MongoDB URI (e.g., mongodb://user:pass@localhost:27017/dbname).
     </p>
 </div>
