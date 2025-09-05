@@ -404,7 +404,6 @@ public class ConnectionService {
 
     // ----------------- Utility for JDBC -----------------
     private String extractHost(String jdbcUrl) {
-        // naive extraction, customize per DB type
         if (jdbcUrl.contains("@")) return jdbcUrl.split("@")[1].split(":")[0];
         return "localhost";
     }
