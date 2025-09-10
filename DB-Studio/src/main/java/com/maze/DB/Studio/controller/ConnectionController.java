@@ -88,6 +88,7 @@ public class ConnectionController {
         profile.setDatabaseName(database);
         model.addAttribute("profile", profile);
         model.addAttribute("database", database);
+        // Always populate tables if database is selected
         if (database != null && !database.isBlank()) {
             String jdbc = profile.getJdbcUrl();
             if (!jdbc.toLowerCase().contains("databasename=")) {
@@ -97,13 +98,15 @@ public class ConnectionController {
             model.addAttribute("tables", service.listTables(profile, database));
         }
 
+        // Populate columns if table is selected
         if (table != null && !table.isBlank()) {
             model.addAttribute("table", table);
             model.addAttribute("tableColumns", service.listColumns(profile, table));
         }
 
+        // Run query if provided
         if (sql != null && !sql.trim().isEmpty()) {
-            runQueryInternal(profile, sql, model);
+            runQueryInternal(profile, sql, model); // should fill "results" in model
         }
 
         return "columns";
