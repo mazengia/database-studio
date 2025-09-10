@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 
 import org.bson.Document;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.sql.*;
@@ -63,20 +64,57 @@ public class ConnectionService {
             // --- MongoDB ---
             if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
                 ConnectionString connString = new ConnectionString(profile.getMongoUri());
-                MongoClientSettings settings = MongoClientSettings.builder()
-                        .applyConnectionString(connString)
-                        .build();
-
-                try (MongoClient client = MongoClients.create(settings)) {
+                try (MongoClient client = MongoClients.create(profile.getMongoUri())) {
                     if (connString.getDatabase() == null) {
-                        // List all databases
-                        client.listDatabaseNames().forEach(result::add);
+                        // No database specified → list all databases
+                        return listDatabases(profile);
                     } else {
-                        // List all collections in the database
-                        client.getDatabase(connString.getDatabase())
-                                .listCollectionNames()
-                                .forEach(result::add);
+                        // Database specified → list tables (collections)
+                        return listTables(profile, connString.getDatabase());
                     }
+                }
+            }
+
+            // --- JDBC ---
+            Class.forName(profile.getDriverClassName());
+            try (Connection conn = DriverManager.getConnection(
+                    profile.getJdbcUrl(),
+                    profile.getUsername(),
+                    profile.getPassword())) {
+
+                DatabaseMetaData metaData = conn.getMetaData();
+                String dbProduct = metaData.getDatabaseProductName().toLowerCase();
+                String catalog = conn.getCatalog(); // current database
+
+                boolean listDatabases = false;
+                if (profile.getJdbcUrl().toLowerCase().contains("databasename=")) {
+                    listDatabases = false; // URL points to a database → list tables
+                } else if (dbProduct.contains("sql server") || dbProduct.contains("mysql")) {
+                    listDatabases = true; // SQL Server / MySQL servers → list databases
+                }
+
+                if (listDatabases) {
+                    result = listDatabases(profile);
+                } else {
+                    result = listTables(profile, catalog);
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return result;
+    }
+
+    public List<String> listDatabases(ConnectionProfile profile) {
+        List<String> result = new ArrayList<>();
+
+        try {
+            // --- MongoDB ---
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                try (MongoClient client = MongoClients.create(profile.getMongoUri())) {
+                    client.listDatabaseNames().forEach(result::add);
                 }
                 return result;
             }
@@ -90,52 +128,76 @@ public class ConnectionService {
 
                 DatabaseMetaData metaData = conn.getMetaData();
                 String dbProduct = metaData.getDatabaseProductName().toLowerCase();
-                String catalog = conn.getCatalog(); // current database
-                String schemaPattern = null;
 
-                // --- Decide what to list ---
-                boolean listDatabases = false;
-                if (profile.getJdbcUrl().toLowerCase().contains("databasename=")) {
-                    listDatabases = false; // URL points to a database → list tables
-                } else if (dbProduct.contains("sql server") || dbProduct.contains("mysql")) {
-                    listDatabases = true; // SQL Server / MySQL servers → list databases
-                }
-
-                if (listDatabases) {
-                    if (dbProduct.contains("sql server")) {
-                        try (ResultSet rs = conn.createStatement().executeQuery("SELECT name FROM sys.databases")) {
-                            while (rs.next()) result.add(rs.getString("name"));
-                        }
-                    } else if (dbProduct.contains("mysql")) {
-                        try (ResultSet rs = conn.createStatement().executeQuery("SHOW DATABASES")) {
-                            while (rs.next()) result.add(rs.getString(1));
-                        }
-                    } else if (dbProduct.contains("postgresql")) {
-                        try (ResultSet rs = conn.createStatement().executeQuery("SELECT datname FROM pg_database WHERE datistemplate = false")) {
-                            while (rs.next()) result.add(rs.getString(1));
-                        }
-                    } else {
-                        // fallback: catalog list
-                        try (ResultSet rs = metaData.getCatalogs()) {
-                            while (rs.next()) result.add(rs.getString("TABLE_CAT"));
-                        }
+                if (dbProduct.contains("sql server")) {
+                    try (ResultSet rs = conn.createStatement().executeQuery("SELECT name FROM sys.databases")) {
+                        while (rs.next()) result.add(rs.getString("name"));
+                    }
+                } else if (dbProduct.contains("mysql")) {
+                    try (ResultSet rs = conn.createStatement().executeQuery("SHOW DATABASES")) {
+                        while (rs.next()) result.add(rs.getString(1));
+                    }
+                } else if (dbProduct.contains("postgresql")) {
+                    try (ResultSet rs = conn.createStatement().executeQuery(
+                            "SELECT datname FROM pg_database WHERE datistemplate = false")) {
+                        while (rs.next()) result.add(rs.getString(1));
                     }
                 } else {
-                    // List tables/views in current database
-                    if (dbProduct.contains("oracle") || dbProduct.contains("db2")) {
-                        schemaPattern = profile.getUsername().toUpperCase();
-                    } else if (dbProduct.contains("postgresql")) {
-                        schemaPattern = "public";
-                    } else if (dbProduct.contains("sql server")) {
-                        schemaPattern = "dbo";
+                    // fallback: JDBC catalogs
+                    try (ResultSet rs = metaData.getCatalogs()) {
+                        while (rs.next()) result.add(rs.getString("TABLE_CAT"));
                     }
+                }
+            }
 
-                    try (ResultSet rs = metaData.getTables(catalog, schemaPattern, "%", new String[]{"TABLE", "VIEW"})) {
-                        while (rs.next()) {
-                            String tableName = rs.getString("TABLE_NAME");
-                            if (tableName != null && !tableName.toUpperCase().startsWith("SYS")) {
-                                result.add(tableName);
-                            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return result;
+    }
+
+    public List<String> listTables(ConnectionProfile profile, String databaseName) {
+        List<String> result = new ArrayList<>();
+
+        try {
+            // --- MongoDB ---
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                ConnectionString connString = new ConnectionString(profile.getMongoUri());
+                try (MongoClient client = MongoClients.create(profile.getMongoUri())) {
+                    String dbName = databaseName != null ? databaseName : connString.getDatabase();
+                    if (dbName != null) {
+                        client.getDatabase(dbName).listCollectionNames().forEach(result::add);
+                    }
+                }
+                return result;
+            }
+
+            // --- JDBC ---
+            Class.forName(profile.getDriverClassName());
+            try (Connection conn = DriverManager.getConnection(
+                    profile.getJdbcUrl() + (databaseName != null ? ";databaseName=" + databaseName : ""),
+                    profile.getUsername(),
+                    profile.getPassword())) {
+
+                DatabaseMetaData metaData = conn.getMetaData();
+                String dbProduct = metaData.getDatabaseProductName().toLowerCase();
+                String catalog = conn.getCatalog();
+                String schemaPattern = null;
+
+                if (dbProduct.contains("oracle") || dbProduct.contains("db2")) {
+                    schemaPattern = profile.getUsername().toUpperCase();
+                } else if (dbProduct.contains("postgresql")) {
+                    schemaPattern = "public";
+                } else if (dbProduct.contains("sql server")) {
+                    schemaPattern = "dbo";
+                }
+
+                try (ResultSet rs = metaData.getTables(catalog, schemaPattern, "%", new String[]{"TABLE", "VIEW"})) {
+                    while (rs.next()) {
+                        String tableName = rs.getString("TABLE_NAME");
+                        if (tableName != null && !tableName.toUpperCase().startsWith("SYS")) {
+                            result.add(tableName);
                         }
                     }
                 }
@@ -312,22 +374,104 @@ public class ConnectionService {
     }
 
 
-    public boolean restoreMongo(String mongoUri, String backupDir) {
+    public boolean restoreMongo(ConnectionProfile profile, MultipartFile file) {
         try {
+            // Save uploaded backup file to a temp folder
+            File backupDir = new File("tmp/mongo_restore_" + System.currentTimeMillis());
+            backupDir.mkdirs();
+            File backupFile = new File(backupDir, file.getOriginalFilename());
+            file.transferTo(backupFile);
+
             ProcessBuilder pb = new ProcessBuilder(
                     "mongorestore",
-                    "--uri=" + mongoUri,
-                    "--dir=" + backupDir,
-                    "--drop"
+                    "--uri=" + profile.getMongoUri(),
+                    "--drop",
+                    "--dir=" + backupDir.getAbsolutePath()
             );
+            pb.inheritIO(); // optional: shows output in console
             Process process = pb.start();
             int exitCode = process.waitFor();
+
+            // Cleanup temp folder
+            backupFile.delete();
+            backupDir.delete();
+
             return exitCode == 0;
         } catch (Exception e) {
             e.printStackTrace();
             return false;
         }
     }
+    public boolean restoreJdbc(ConnectionProfile profile, MultipartFile file) {
+        try {
+            // Save uploaded backup file to system temp folder
+            File tempDir = new File(System.getProperty("java.io.tmpdir"));
+            File backupFile = new File(tempDir, "jdbc_restore_" + System.currentTimeMillis() + ".sql");
+            file.transferTo(backupFile);
+
+            String dbUrl = profile.getJdbcUrl();
+            Process process;
+
+            if (dbUrl.toLowerCase().contains("mysql")) {
+                String command = String.format(
+                        "mysql -u%s -p%s -h%s %s",
+                        profile.getUsername(),
+                        profile.getPassword(),
+                        extractHost(dbUrl),
+                        extractDatabase(dbUrl)
+                );
+                process = new ProcessBuilder("sh", "-c", command + " < " + backupFile.getAbsolutePath())
+                        .inheritIO()
+                        .start();
+
+            } else if (dbUrl.toLowerCase().contains("postgresql")) {
+                String command = String.format(
+                        "psql -U %s -h %s -d %s -f %s",
+                        profile.getUsername(),
+                        extractHost(dbUrl),
+                        extractDatabase(dbUrl),
+                        backupFile.getAbsolutePath()
+                );
+                process = new ProcessBuilder("sh", "-c", command)
+                        .inheritIO()
+                        .start();
+
+            }
+
+         else if (dbUrl.toLowerCase().contains("sqlserver")) {
+            String masterDbUrl = dbUrl.replace("databaseName=" + extractDatabase(dbUrl),
+                    "databaseName=master");
+
+            String dbName = extractDatabase(dbUrl);
+
+            String sql = "ALTER DATABASE [" + dbName + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; " +
+                    "RESTORE DATABASE [" + dbName + "] FROM DISK = N'" + backupFile.getAbsolutePath() + "' WITH REPLACE; " +
+                    "ALTER DATABASE [" + dbName + "] SET MULTI_USER;";
+
+            Class.forName(profile.getDriverClassName());
+            try (Connection conn = DriverManager.getConnection(masterDbUrl, profile.getUsername(), profile.getPassword());
+                 Statement stmt = conn.createStatement()) {
+                stmt.execute(sql);
+            }
+            backupFile.delete();
+            return true;
+        }
+
+
+        else {
+                throw new UnsupportedOperationException("JDBC Restore not supported for this DB");
+            }
+
+            int exitCode = process.waitFor();
+            backupFile.delete();
+            return exitCode == 0;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
 
     // ---------------- JDBC Backup/Restore ----------------
     public boolean backupJdbc(ConnectionProfile profile) {
@@ -386,37 +530,6 @@ public class ConnectionService {
     }
 
 
-    public boolean restoreJdbc(ConnectionProfile profile, String backupFile) {
-        try {
-            String command = "";
-            String dbUrl = profile.getJdbcUrl();
-            if (dbUrl.toLowerCase().contains("mysql")) {
-                command = String.format("mysql -u%s -p%s -h%s %s < %s",
-                        profile.getUsername(),
-                        profile.getPassword(),
-                        extractHost(dbUrl),
-                        extractDatabase(dbUrl),
-                        backupFile
-                );
-            } else if (dbUrl.toLowerCase().contains("postgresql")) {
-                command = String.format("psql -U %s -h %s -d %s -f %s",
-                        profile.getUsername(),
-                        extractHost(dbUrl),
-                        extractDatabase(dbUrl),
-                        backupFile
-                );
-            } else {
-                throw new UnsupportedOperationException("JDBC Restore not supported for this DB");
-            }
-
-            Process process = Runtime.getRuntime().exec(command);
-            int exitCode = process.waitFor();
-            return exitCode == 0;
-        } catch (Exception e) {
-            e.printStackTrace();
-            return false;
-        }
-    }
 
     // ----------------- Utility for JDBC -----------------
     private String extractHost(String jdbcUrl) {

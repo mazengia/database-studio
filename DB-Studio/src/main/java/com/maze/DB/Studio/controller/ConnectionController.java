@@ -14,6 +14,8 @@ import java.util.List;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
+
 @Controller
 @RequiredArgsConstructor
 @RequestMapping("/db")
@@ -51,27 +53,37 @@ public class ConnectionController {
     }
 
 
+    @PostMapping("/columns")
+    public String showColumns(@ModelAttribute ConnectionProfile profile,
+                              @RequestParam(required = false) String table,
+                              @RequestParam(required = false) String database,
+                              @RequestParam(required = false) String sql,
+                              Model model) {
 
-    @PostMapping("/selectDatabase")
-    public String selectDatabase(@ModelAttribute ConnectionProfile profile,
-                                 @RequestParam String database, Model model) {
-        String jdbc = profile.getJdbcUrl();
-        if (jdbc.toLowerCase().contains("databasename=")) {
-            jdbc = jdbc.replaceAll("(?i)databaseName=[^;]*", "databaseName=" + database);
-        } else {
-            jdbc += ";databaseName=" + database;
+        model.addAttribute("profile", profile);
+
+        if (database != null && !database.isBlank()) {
+            // User clicked a database → fetch tables inside it
+            String jdbc = profile.getJdbcUrl();
+            if (!jdbc.toLowerCase().contains("databasename=")) {
+
+                jdbc += ";databaseName=" + database;
+            }
+            profile.setJdbcUrl(jdbc);
+            model.addAttribute("database", database); // keep in model for form reuse
+            model.addAttribute("tables", service.listTables(profile, database));
         }
-        profile.setJdbcUrl(jdbc);
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        return "query-editor";
-    }
 
-    @PostMapping("/query-editor")
-    public String queryEditor(@ModelAttribute ConnectionProfile profile, Model model) {
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        return "query-editor";
+        if (table != null && !table.isBlank()) {
+            model.addAttribute("table", table);
+            model.addAttribute("tableColumns", service.listColumns(profile, table));
+        }
+
+        if (sql != null && !sql.trim().isEmpty()) {
+            runQueryInternal(profile, sql,  model); // <-- pass database
+        }
+
+        return "columns";
     }
 
     @PostMapping("/backup")
@@ -79,53 +91,61 @@ public class ConnectionController {
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
-        boolean success = profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()
-                ? service.backupMongo(profile)
-                : service.backupJdbc(profile);
-
-        model.addAttribute("message", success ? "Backup successful" : "Backup failed");
-        return "db-home";
-    }
-
-    @PostMapping("/restore")
-    public String restoreDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-
-        boolean success = profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()
-                ? service.restoreMongo(profile.getMongoUri(), "/path/to/backup/mongo")
-                : service.restoreJdbc(profile, "/path/to/backup/jdbc");
-
-        model.addAttribute("message", success ? "Restore successful" : "Restore failed");
-        return "db-home";
-    }
-
-    @PostMapping("/columns")
-    public String showColumns(@ModelAttribute ConnectionProfile profile,
-                              @RequestParam String table,
-                              @RequestParam(required = false) String sql,
-                              Model model) {
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        model.addAttribute("table", table);
-        model.addAttribute("tableColumns", service.listColumns(profile, table));
-
-        if (sql != null && !sql.trim().isEmpty()) {
-            runQueryInternal(profile, sql, model);
+        boolean success;
+        try {
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                success = service.backupMongo(profile);
+            } else {
+                success = service.backupJdbc(profile);
+            }
+            if (success) {
+                model.addAttribute("message", "Backup successful");
+                model.addAttribute("error", null);
+            } else {
+                model.addAttribute("error", "Backup failed");
+                model.addAttribute("message", null);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            model.addAttribute("error", "Backup failed: " + e.getMessage());
+            model.addAttribute("message", null);
         }
 
         return "columns";
     }
 
-    @PostMapping("/query")
-    public String runQuery(@ModelAttribute ConnectionProfile profile,
-                           @RequestParam String sql,
-                           Model model) {
+    @PostMapping("/restore")
+    public String restoreDatabase(@ModelAttribute ConnectionProfile profile,
+                                  @RequestParam("file") MultipartFile file,
+                                  Model model) {
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        runQueryInternal(profile, sql, model);
-        return "query-editor";
+
+        boolean success;
+        try {
+            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+                success = service.restoreMongo(profile, file);
+            } else {
+                success = service.restoreJdbc(profile, file);
+            }
+            if (success) {
+                model.addAttribute("message", "Restore successful");
+                model.addAttribute("error", null);
+            } else {
+                model.addAttribute("error", "Restore failed");
+                model.addAttribute("message", null);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            model.addAttribute("error", "Restore failed: " + e.getMessage());
+            model.addAttribute("message", null);
+        }
+
+
+        return "columns";
     }
+
+
 
     // Internal method to avoid duplicate code
     private void runQueryInternal(ConnectionProfile profile, String sql, Model model) {
