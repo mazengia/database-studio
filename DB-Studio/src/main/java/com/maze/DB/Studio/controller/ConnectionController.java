@@ -88,7 +88,6 @@ public class ConnectionController {
         profile.setDatabaseName(database);
         model.addAttribute("profile", profile);
         model.addAttribute("database", database);
-        // Always populate tables if database is selected
         if (database != null && !database.isBlank()) {
             String jdbc = profile.getJdbcUrl();
             if (!jdbc.toLowerCase().contains("databasename=")) {
