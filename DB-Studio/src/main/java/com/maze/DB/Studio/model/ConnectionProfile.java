@@ -16,6 +16,8 @@ public class ConnectionProfile {
     private String username;
     private String password;
     private String mongoUri;
+    private String serverName;
+    private String databaseName;
 }
 
 //ConnectionProfile oracleProfile = new ConnectionProfile(

@@ -35,7 +35,9 @@ public class ConnectionController {
         try {
             service.testConnection(profile);
 
+            profile.setServerName(extractServerName(profile.getJdbcUrl()));
             model.addAttribute("profile", profile);
+
             model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
             if (profile.getMongoUri() == null || profile.getMongoUri().isEmpty()) {
@@ -51,6 +53,29 @@ public class ConnectionController {
             return "connect";
         }
     }
+    public String extractServerName(String jdbcUrl) {
+        try {
+            String withoutPrefix = jdbcUrl.substring(jdbcUrl.indexOf("//") + 2);
+            String hostPort = withoutPrefix.split("[/;]")[0];
+            return hostPort.contains(":") ? hostPort.split(":")[0] : hostPort;
+        } catch (Exception e) {
+            return "Unknown";
+        }
+    }
+
+    public String extractDatabaseName(String jdbcUrl) {
+        try {
+            String[] parts = jdbcUrl.split(";");
+            for (String part : parts) {
+                if (part.trim().toLowerCase().startsWith("databasename=")) {
+                    return part.split("=", 2)[1];
+                }
+            }
+            return "Unknown";
+        } catch (Exception e) {
+            return "Unknown";
+        }
+    }
 
 
     @PostMapping("/columns")
@@ -60,34 +85,41 @@ public class ConnectionController {
                               @RequestParam(required = false) String sql,
                               Model model) {
 
+        // Keep the database in profile & model
+        profile.setDatabaseName(database);
         model.addAttribute("profile", profile);
+        model.addAttribute("database", database); // for form hidden field
 
+        // Always populate tables if database is selected
         if (database != null && !database.isBlank()) {
-            // User clicked a database → fetch tables inside it
             String jdbc = profile.getJdbcUrl();
             if (!jdbc.toLowerCase().contains("databasename=")) {
-
                 jdbc += ";databaseName=" + database;
+                profile.setJdbcUrl(jdbc);
             }
-            profile.setJdbcUrl(jdbc);
-            model.addAttribute("database", database); // keep in model for form reuse
             model.addAttribute("tables", service.listTables(profile, database));
         }
 
+        // Populate columns if table is selected
         if (table != null && !table.isBlank()) {
             model.addAttribute("table", table);
             model.addAttribute("tableColumns", service.listColumns(profile, table));
         }
 
+        // Run query if provided
         if (sql != null && !sql.trim().isEmpty()) {
-            runQueryInternal(profile, sql,  model); // <-- pass database
+            runQueryInternal(profile, sql, model); // should fill "results" in model
         }
 
         return "columns";
     }
 
+
     @PostMapping("/backup")
     public String backupDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
+
+        profile.setServerName(extractServerName(profile.getJdbcUrl()));
+        profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
@@ -141,11 +173,8 @@ public class ConnectionController {
             model.addAttribute("message", null);
         }
 
-
         return "columns";
     }
-
-
 
     // Internal method to avoid duplicate code
     private void runQueryInternal(ConnectionProfile profile, String sql, Model model) {

@@ -3,88 +3,161 @@
 <head>
     <title>Maze DB Studio | Connect</title>
     <link rel="stylesheet" href="/webjars/bootstrap/5.3.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        body {
+            background: #f8f9fa;
+        }
+        .page-title {
+            font-weight: 600;
+            color: #0d6efd;
+        }
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+        .form-section-title {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #495057;
+            margin-bottom: 0.75rem;
+        }
+        .btn-connect {
+             display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px 32px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 10px;
+            border: none;
+            background: linear-gradient(135deg, #0d6efd, #00b4d8);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3);
+            transition: all 0.3s ease-in-out;
+            width: auto; /* default desktop */
+            min-width: 160px;
+        }
+
+        .btn-connect i {
+            font-size: 1.1rem;
+        }
+
+        .btn-connect:hover {
+            background: linear-gradient(135deg, #0a58ca, #0096c7);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(13, 110, 253, 0.4);
+        }
+
+        .btn-connect:active {
+            transform: scale(0.97);
+            box-shadow: 0 2px 6px rgba(13, 110, 253, 0.4);
+        }
+        @media (max-width: 768px) {
+            .btn-connect-modern {
+                width: 100%;
+            }
+        }
+    </style>
 </head>
-<body class="p-4">
-<div class="container">
-    <h2 class="mb-3">Connect to Database</h2>
-    <form th:action="@{/db/connect}" method="post" th:object="${profile}">
-        <!-- JDBC Section -->
-        <h5>JDBC Connection</h5>
+<body>
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-9 col-md-9">
+            <div class="text-center mb-4">
+                <h2 class="page-title">
+                    <i class="fa-solid fa-database me-2"></i> Maze DB Studio
+                </h2>
+                <p class="text-muted">Connect to your database easily using JDBC or MongoDB</p>
+            </div>
 
-        <!-- Driver Dropdown -->
-        <select class="form-select mb-2" th:field="*{driverClassName}" id="driverSelect">
-            <option value="">-- Select Driver --</option>
-            <option value="org.h2.Driver">H2 Database</option>
-            <option value="com.mysql.cj.jdbc.Driver">MySQL</option>
-            <option value="org.postgresql.Driver">PostgreSQL</option>
-            <option value="oracle.jdbc.OracleDriver">Oracle</option>
-            <option value="com.microsoft.sqlserver.jdbc.SQLServerDriver">SQL Server</option>
-            <option value="org.mariadb.jdbc.Driver">MariaDB</option>
-            <option value="com.ibm.db2.jcc.DB2Driver">IBM DB2</option>
-            <option value="org.sqlite.JDBC">SQLite</option>
-            <option value="com.sybase.jdbc4.jdbc.SybDriver">Sybase</option>
-            <option value="com.sap.db.jdbc.Driver">SAP HANA</option>
-            <option value="org.apache.derby.jdbc.EmbeddedDriver">Apache Derby</option>
-            <option value="net.sourceforge.jtds.jdbc.Driver">jTDS (SQL Server/Sybase)</option>
-        </select>
+            <div class="card p-4">
+                <form th:action="@{/db/connect}" method="post" th:object="${profile}">
+                    <!-- JDBC Section -->
+                    <div class="mb-4">
+                        <div class="form-section-title"><i class="fa-solid fa-plug me-2"></i> JDBC Connection</div>
+                        <select class="form-select mb-3" th:field="*{driverClassName}" id="driverSelect">
+                            <option value="">-- Select Driver --</option>
+                            <option value="org.h2.Driver">H2 Database</option>
+                            <option value="com.mysql.cj.jdbc.Driver">MySQL</option>
+                            <option value="org.postgresql.Driver">PostgreSQL</option>
+                            <option value="oracle.jdbc.OracleDriver">Oracle</option>
+                            <option value="com.microsoft.sqlserver.jdbc.SQLServerDriver">SQL Server</option>
+                            <option value="org.mariadb.jdbc.Driver">MariaDB</option>
+                            <option value="com.ibm.db2.jcc.DB2Driver">IBM DB2</option>
+                            <option value="org.sqlite.JDBC">SQLite</option>
+                            <option value="com.sybase.jdbc4.jdbc.SybDriver">Sybase</option>
+                            <option value="com.sap.db.jdbc.Driver">SAP HANA</option>
+                            <option value="org.apache.derby.jdbc.EmbeddedDriver">Apache Derby</option>
+                            <option value="net.sourceforge.jtds.jdbc.Driver">jTDS (SQL Server/Sybase)</option>
+                        </select>
 
-        <!-- JDBC URL template dropdown -->
-        <div class="mb-2">
-            <label class="form-label">JDBC URL</label>
-            <select id="jdbcTemplateSelect" class="form-select mb-2">
-                <option value="">-- Select Sample JDBC URL --</option>
-                <option value="jdbc:h2:mem:testdb">H2 (In-Memory)</option>
-                <option value="jdbc:mysql://host:3306/dbname">MySQL</option>
-                <option value="jdbc:postgresql://host:5432/dbname">PostgreSQL</option>
-                <option value="jdbc:oracle:thin:@host:1521:orcl">Oracle</option>
-                <option value="jdbc:sqlserver://host:1433;encrypt=false;instanceName=INSTANCE;databaseName=dbname;encrypt=false">
-                    SQL Server
-                </option>
-                <option value="jdbc:mariadb://host:3306/dbname">MariaDB</option>
-                <option value="jdbc:sqlite:/path/to/dbfile.db">SQLite</option>
-            </select>
-            <input id="jdbcUrlInput" class="form-control" placeholder="JDBC URL" th:field="*{jdbcUrl}">
+                        <input id="jdbcUrlInput" class="form-control mb-3" placeholder="JDBC URL" th:field="*{jdbcUrl}">
+                        <input class="form-control mb-3" placeholder="Username" th:field="*{username}">
+                        <input class="form-control mb-3" placeholder="Password" type="password" th:field="*{password}">
+                    </div>
+
+                    <hr>
+
+                    <!-- MongoDB Section -->
+                    <div class="mb-4">
+                        <div class="form-section-title"><i class="fa-brands fa-envira me-2"></i> MongoDB Connection
+                        </div>
+                        <select id="mongoTemplateSelect" class="form-select mb-3">
+                            <option value="">-- Select Sample MongoDB URI --</option>
+                            <option value="mongodb://host:27017/dbname">Standalone</option>
+                            <option value="mongodb://user:pass@host:27017/dbname">With Authentication</option>
+                            <option value="mongodb://host1:27017,host2:27017,host3:27017/dbname?replicaSet=rs0">Replica
+                                set
+                            </option>
+                            <option value="mongodb+srv://user:pass@cluster0.mongodb.net/dbname">MongoDB Atlas (SRV)
+                            </option>
+                        </select>
+                        <input id="mongoUriInput" class="form-control" placeholder="MongoDB URI" th:field="*{mongoUri}">
+                    </div>
+                    <div class="text-center">
+                        <button class="btn btn-primary btn-connect">
+                            <i class="fa-solid fa-right-to-bracket me-2"></i> Connect
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Error message -->
+                <div th:if="${error}" class="alert alert-danger mt-3" th:text="${error}"></div>
+
+                <!-- Info -->
+                <div class="alert alert-info mt-3 small">
+                    <i class="fa-solid fa-circle-info me-2"></i>
+                    <strong>Tip:</strong> For JDBC, select a driver to auto-fill the URL. For MongoDB, pick a sample URI
+                    or type your own.
+                </div>
+            </div>
         </div>
-
-        <input class="form-control mb-2" placeholder="Username" th:field="*{username}">
-        <input class="form-control mb-2" placeholder="Password" type="password" th:field="*{password}">
-
-        <hr>
-
-        <!-- MongoDB Section -->
-        <h5>MongoDB Connection</h5>
-        <div class="mb-2">
-            <label class="form-label">MongoDB URI</label>
-            <!-- MongoDB template dropdown -->
-            <select id="mongoTemplateSelect" class="form-select mb-2">
-                <option value="">-- Select Sample MongoDB URI --</option>
-                <option value="mongodb://host:27017/dbname">Standalone</option>
-                <option value="mongodb://user:pass@host:27017/dbname">With Authentication</option>
-                <option value="mongodb://host1:27017,host2:27017,host3:27017/dbname?replicaSet=rs0">Replica Set</option>
-                <option value="mongodb+srv://user:pass@cluster0.mongodb.net/dbname">MongoDB Atlas (SRV)</option>
-            </select>
-            <input id="mongoUriInput" class="form-control" placeholder="MongoDB URI" th:field="*{mongoUri}">
-        </div>
-
-        <button class="btn btn-primary mt-2">Connect</button>
-    </form>
-
-    <!-- Error message --><!-- Error message -->
-    <div th:if="${error}" class="alert alert-danger mt-2" th:text="${error}"></div>
-    <!-- Info / guidance -->
-    <p class="mt-3 text-muted">
-        For JDBC: Select Driver Class, choose a sample JDBC URL (editable), enter Username, and Password.<br>
-        For MongoDB: Select a sample URI (editable) or type your own.
-    </p>
+    </div>
 </div>
 
 <script>
     document.addEventListener("DOMContentLoaded", function () {
-        // JDBC auto-fill
-        const jdbcSelect = document.getElementById("jdbcTemplateSelect");
+        const driverSelect = document.getElementById("driverSelect");
         const jdbcInput = document.getElementById("jdbcUrlInput");
-        jdbcSelect.addEventListener("change", function () {
-            if (this.value) jdbcInput.value = this.value;
+
+        const jdbcTemplates = {
+            "org.h2.Driver": "jdbc:h2:mem:testdb",
+            "com.mysql.cj.jdbc.Driver": "jdbc:mysql://host:3306/dbname",
+            "org.postgresql.Driver": "jdbc:postgresql://host:5432/dbname",
+            "oracle.jdbc.OracleDriver": "jdbc:oracle:thin:@host:1521:orcl",
+            "com.microsoft.sqlserver.jdbc.SQLServerDriver": "jdbc:sqlserver://host:1433;encrypt=false;instanceName=INSTANCE;databaseName=dbname;encrypt=false",
+            "org.mariadb.jdbc.Driver": "jdbc:mariadb://host:3306/dbname",
+            "org.sqlite.JDBC": "jdbc:sqlite:/path/to/dbfile.db",
+            "com.ibm.db2.jcc.DB2Driver": "jdbc:db2://host:50000/dbname",
+            "com.sybase.jdbc4.jdbc.SybDriver": "jdbc:sybase:Tds:host:5000/dbname",
+            "com.sap.db.jdbc.Driver": "jdbc:sap://host:30015/dbname",
+            "org.apache.derby.jdbc.EmbeddedDriver": "jdbc:derby:/path/to/db;create=true",
+            "net.sourceforge.jtds.jdbc.Driver": "jdbc:jtds:sqlserver://host:1433/dbname"
+        };
+
+        driverSelect.addEventListener("change", function () {
+            jdbcInput.value = jdbcTemplates[this.value] || "";
         });
 
         // MongoDB auto-fill

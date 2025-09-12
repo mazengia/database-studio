@@ -6,33 +6,38 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         body {
-            background-color: #f8f9fa;
+            background-color: #f1f3f6;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         /* Sidebar */
         .sidebar {
-            background: #fff;
+            background: #ffffff;
             padding: 20px;
-            border-radius: 0.5rem;
-            box-shadow: 0 0 15px rgba(0,0,0,0.05);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             height: 100%;
-        }
-        .sidebar h4 {
-            font-weight: 600;
-            border-bottom: 2px solid #007bff;
-            padding-bottom: 5px;
-            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            max-height: 90vh;
+            overflow-y: auto;
         }
 
-        /* Backup / Restore top input style */
+        .sidebar h4 {
+            font-weight: 600;
+            border-bottom: 2px solid #0d6efd;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+            color: #212529;
+        }
+
         .backup-restore-top {
             display: flex;
-            gap: 5px;
+            gap: 10px;
             margin-bottom: 20px;
         }
         .backup-restore-top input[type="file"] {
-            flex: 1;
+            flex-grow: 1;
         }
         .backup-restore-top button {
             display: flex;
@@ -40,7 +45,16 @@
             gap: 5px;
         }
 
-        /* Tables List */
+        .active-database {
+            padding: 12px 15px;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
         .sidebar ul {
             list-style-type: none;
             padding-left: 0;
@@ -50,147 +64,149 @@
         }
         .sidebar ul li button {
             border: none;
-            background: none;
+            background: #f8f9fa;
             width: 100%;
             text-align: left;
             padding: 8px 12px;
-            border-radius: 0.3rem;
-            transition: 0.2s;
+            border-radius: 8px;
+            transition: all 0.2s;
         }
-        .sidebar ul li button:hover {
-            background-color: #007bff;
+        .sidebar ul li button:hover, .sidebar ul li button.active {
+            background-color: #0d6efd;
             color: #fff;
         }
 
-        /* Columns */
+        /* Columns List */
         .columns {
             margin-top: 20px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
         }
         .columns h5 {
             margin-bottom: 10px;
             font-weight: 600;
-            color: #495057;
+            color: #212529;
         }
-        .col-name {
-            color: #007bff;
-            font-weight: bold;
-            margin-right: 5px;
+        .columns ul {
+            padding-left: 0;
+            list-style-type: none;
         }
-        .col-type {
-            color: #28a745;
-            font-style: italic;
-        }
+        .col-name { color: #0d6efd; font-weight: 600; margin-right: 6px; }
+        .col-type { color: #28a745; font-style: italic; }
 
-        /* Query editor */
+        /* Query Editor */
         .query-editor {
-            background: #fff;
+            background: #ffffff;
             padding: 20px;
-            border-radius: 0.5rem;
-            box-shadow: 0 0 15px rgba(0,0,0,0.05);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
             margin-bottom: 20px;
         }
         .query-editor textarea {
             font-family: monospace;
+            font-size: 0.95rem;
+            resize: vertical;
         }
-
-        /* Results table */
-        .results-card {
-            background: #fff;
-            padding: 20px;
-            border-radius: 0.5rem;
-            box-shadow: 0 0 15px rgba(0,0,0,0.05);
-        }
-        .results-card table {
-            margin-bottom: 0;
-        }
-
-        /* Buttons */
-        .btn-primary {
-            background-color: #007bff;
-            border-color: #007bff;
-        }
-        .btn-primary:hover {
-            background-color: #0056b3;
-            border-color: #0056b3;
-        }
-        .btn-success, .btn-warning {
+        .query-editor button {
             display: flex;
             align-items: center;
             gap: 5px;
         }
 
+        /* Results Card */
+        .results-card {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            overflow-x: auto;
+        }
+        .results-card h4 {
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+
+        /* Buttons */
+        .btn-primary { background-color: #0d6efd; border-color: #0d6efd; }
+        .btn-primary:hover { background-color: #0b5ed7; border-color: #0a58ca; }
+        .btn-success, .btn-warning { display: flex; align-items: center; gap: 5px; }
+
     </style>
 </head>
 <body class="p-4">
 <div class="container-fluid">
-    <div class="row"> <!-- smaller gap -->
+    <div class="row g-3">
         <!-- Left Sidebar -->
-        <div class="col-4"> <!-- increased from 3 to 4 -->
+        <div class="col-lg-3 col-md-12">
             <div class="sidebar">
                 <!-- Backup / Restore Top -->
                 <div class="backup-restore-top mb-3">
                     <form th:action="@{/db/backup}" method="post">
-                        <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}" />
-                        <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}" />
-                        <input type="hidden" name="username" th:value="${profile.username}" />
-                        <input type="hidden" name="password" th:value="${profile.password}" />
-                        <button class="btn btn-success btn-sm w-100 mb-1" type="submit">
-                            <i class="bi bi-cloud-arrow-up"></i> Backup
+                        <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}"/>
+                        <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}"/>
+                        <input type="hidden" name="username" th:value="${profile.username}"/>
+                        <input type="hidden" name="password" th:value="${profile.password}"/>
+                        <button class="btn btn-success btn-sm w-100"><i class="bi bi-cloud-arrow-up"></i> Backup
                         </button>
                     </form>
 
                     <form th:action="@{/db/restore}" method="post" enctype="multipart/form-data" class="d-flex">
-                        <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}" />
-                        <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}" />
-                        <input type="hidden" name="username" th:value="${profile.username}" />
-                        <input type="hidden" name="password" th:value="${profile.password}" />
+                        <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}"/>
+                        <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}"/>
+                        <input type="hidden" name="username" th:value="${profile.username}"/>
+                        <input type="hidden" name="password" th:value="${profile.password}"/>
                         <input type="file" name="file" required class="form-control form-control-sm me-1">
-                        <button class="btn btn-warning btn-sm" type="submit">
-                            <i class="bi bi-cloud-arrow-down"></i>Restore
-                        </button>
+                        <button class="btn btn-warning btn-sm"><i class="bi bi-cloud-arrow-down"></i> Restore</button>
                     </form>
                 </div>
 
                 <!-- Active Database -->
-                <div class="mb-3 p-2 bg-primary text-white rounded d-flex align-items-center justify-content-between">
-                    <span><i class="bi bi-database"></i> Active Database:</span>
-                    <strong th:text="${database}">Database_Name</strong>
+                <div class="active-database p-2 mb-3 bg-light border rounded">
+                    <span>
+                        <i class="bi bi-database text-primary me-2"></i>
+                        <strong th:text="${profile.databaseName}">Database_Name</strong>
+                    </span>
+                    <span class="badge bg-info text-dark"
+                          th:text="${tables != null} ? ${tables.size()} + ' Tables' : ''"></span>
                 </div>
-
                 <!-- Tables List -->
-                <h4>Tables</h4>
+                <h4 th:if="${tables != null}"><i class="bi bi-table me-2 text-primary"></i>Tables</h4>
+
                 <ul>
                     <li th:each="t : ${tables}">
                         <form th:action="@{/db/columns}" method="post">
-                            <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}" />
-                            <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}" />
-                            <input type="hidden" name="username" th:value="${profile.username}" />
-                            <input type="hidden" name="password" th:value="${profile.password}" />
-                            <input type="hidden" name="table" th:value="${t}" />
+                            <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}"/>
+                            <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}"/>
+                            <input type="hidden" name="username" th:value="${profile.username}"/>
+                            <input type="hidden" name="password" th:value="${profile.password}"/>
+                            <input type="hidden" name="database" th:value="${profile.databaseName}"/>
+                            <input type="hidden" name="table" th:value="${t}"/>
                             <button type="submit"
-                                    th:classappend="${table == t} ? 'btn btn-outline-primary fw-bold' : ''"
-                                    class="btn btn-link p-0">
+                                    th:classappend="${table == t} ? 'active fw-bold' : ''"
+                                    class="btn w-100 text-start">
+                                <i class="bi bi-table me-2"></i>
                                 <span th:text="${t}"></span>
                             </button>
                         </form>
+
+                        <!-- Columns of the selected table -->
+                        <div class="columns mt-1 ps-3" th:if="${table == t}">
+                            <ul>
+                                <li th:each="c : ${tableColumns}">
+                                    <i class="bi bi-circle-fill text-secondary me-2"></i>
+                                    <span class="col-name" th:text="${#strings.substringBefore(c, ' ')}"></span>
+                                    <span class="col-type" th:text="${#strings.substring(c, #strings.indexOf(c, ' ') + 1)}"></span>
+                                </li>
+                            </ul>
+                        </div>
                     </li>
                 </ul>
-
-                <!-- Columns List -->
-                <div class="columns" th:if="${table != null}">
-                    <h5 th:text="'Columns of ' + ${table}"></h5>
-                    <ul>
-                        <li th:each="c : ${tableColumns}">
-                            <span class="col-name" th:text="${#strings.substringBefore(c, ' ')}"></span>
-                            <span class="col-type" th:text="${#strings.substring(c, #strings.indexOf(c, ' ') + 1)}"></span>
-                        </li>
-                    </ul>
-                </div>
             </div>
         </div>
 
         <!-- Right Content -->
-        <div class="col-8"> <!-- decreased from 9 to 8 -->
+        <div class="col-lg-9 col-md-12">
             <div class="query-editor">
                 <h2 class="mb-3">Query Editor</h2>
                 <form th:action="@{/db/columns}" method="post" th:object="${profile}">
@@ -201,7 +217,7 @@
                     <input type="hidden" name="database" th:value="${database}">
                     <input type="hidden" name="table" th:value="${table}">
 
-                    <textarea class="form-control mb-3" name="sql" rows="6" th:text="${sql}"></textarea>
+                    <textarea class="form-control mb-3" name="sql" rows="6" th:text="${sql}" placeholder="Write your SQL query here..."></textarea>
                     <button class="btn btn-primary"><i class="bi bi-play-fill"></i> Run Query</button>
                 </form>
                 <p th:text="${error}" class="text-danger mt-2"></p>
@@ -221,6 +237,5 @@
         </div>
     </div>
 </div>
-
 </body>
 </html>
