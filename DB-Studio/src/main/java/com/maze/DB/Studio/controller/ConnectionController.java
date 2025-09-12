@@ -30,29 +30,66 @@ public class ConnectionController {
         }
         return "connect";
     }
+
     @PostMapping("/connect")
     public String connect(@ModelAttribute ConnectionProfile profile, Model model) {
         try {
             service.testConnection(profile);
-
             profile.setServerName(extractServerName(profile.getJdbcUrl()));
             model.addAttribute("profile", profile);
-
-            model.addAttribute("tables", service.listTablesOrDatabases(profile));
+            if (profile.getJdbcUrl().toLowerCase().contains("databasename=")) {
+                profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
+                model.addAttribute("tables", service.listTablesOrDatabases(profile));
+            }
+            else{
+                model.addAttribute("databases", service.listTablesOrDatabases(profile));
+            }
 
             if (profile.getMongoUri() == null || profile.getMongoUri().isEmpty()) {
                 model.addAttribute("views", service.listViews(profile));
                 model.addAttribute("procedures", service.listStoredProcedures(profile));
             }
 
-            return "db-home";
-
+            return "columns";
         } catch (Exception e) {
             model.addAttribute("error", e.getMessage());
             model.addAttribute("profile", profile);
             return "connect";
         }
     }
+
+    @PostMapping("/columns")
+    public String showColumns(@ModelAttribute ConnectionProfile profile,
+                              @RequestParam(required = false) String table,
+                              @RequestParam(required = false) String database,
+                              @RequestParam(required = false) String sql,
+                              Model model) {
+
+        profile.setDatabaseName(database);
+        model.addAttribute("profile", profile);
+        // Populate tables if database selected
+        if (database != null && !database.isBlank()) {
+            if (!profile.getJdbcUrl().toLowerCase().contains("databasename=")) {
+                profile.setJdbcUrl(profile.getJdbcUrl() + ";databaseName=" + database);
+            }
+            model.addAttribute("tables", service.listTables(profile, database));
+        }
+
+        // Populate columns if table selected
+        if (table != null && !table.isBlank()) {
+            model.addAttribute("table", table);
+            model.addAttribute("tableColumns", service.listColumns(profile, table));
+        }
+
+        // Run query if provided
+        if (sql != null && !sql.trim().isEmpty()) {
+            runQueryInternal(profile, sql, model); // populates "results"
+        }
+
+        return "columns";
+    }
+
+
     public String extractServerName(String jdbcUrl) {
         try {
             String withoutPrefix = jdbcUrl.substring(jdbcUrl.indexOf("//") + 2);
@@ -77,40 +114,6 @@ public class ConnectionController {
         }
     }
 
-
-    @PostMapping("/columns")
-    public String showColumns(@ModelAttribute ConnectionProfile profile,
-                              @RequestParam(required = false) String table,
-                              @RequestParam(required = false) String database,
-                              @RequestParam(required = false) String sql,
-                              Model model) {
-
-        profile.setDatabaseName(database);
-        model.addAttribute("profile", profile);
-        model.addAttribute("database", database);
-        // Always populate tables if database is selected
-        if (database != null && !database.isBlank()) {
-            String jdbc = profile.getJdbcUrl();
-            if (!jdbc.toLowerCase().contains("databasename=")) {
-                jdbc += ";databaseName=" + database;
-                profile.setJdbcUrl(jdbc);
-            }
-            model.addAttribute("tables", service.listTables(profile, database));
-        }
-
-        // Populate columns if table is selected
-        if (table != null && !table.isBlank()) {
-            model.addAttribute("table", table);
-            model.addAttribute("tableColumns", service.listColumns(profile, table));
-        }
-
-        // Run query if provided
-        if (sql != null && !sql.trim().isEmpty()) {
-            runQueryInternal(profile, sql, model); // should fill "results" in model
-        }
-
-        return "columns";
-    }
 
 
     @PostMapping("/backup")
