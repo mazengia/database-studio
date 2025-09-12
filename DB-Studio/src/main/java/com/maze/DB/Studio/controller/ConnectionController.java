@@ -85,11 +85,9 @@ public class ConnectionController {
                               @RequestParam(required = false) String sql,
                               Model model) {
 
-        // Keep the database in profile & model
         profile.setDatabaseName(database);
         model.addAttribute("profile", profile);
-        model.addAttribute("database", database); // for form hidden field
-
+        model.addAttribute("database", database);
         // Always populate tables if database is selected
         if (database != null && !database.isBlank()) {
             String jdbc = profile.getJdbcUrl();
