@@ -3,7 +3,6 @@ package com.maze.DB.Studio.service;
 import com.maze.DB.Studio.model.ConnectionProfile;
 import com.maze.DB.Studio.util.ResultSetUtil;
 import com.mongodb.ConnectionString;
-import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoSecurityException;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.client.*;
@@ -18,6 +17,8 @@ import java.io.File;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+
+import static com.maze.DB.Studio.util.JdbcUrlParser.extractDatabaseName;
 
 @Service
 @RequiredArgsConstructor
@@ -109,104 +110,106 @@ public class ConnectionService {
 
     public List<String> listDatabases(ConnectionProfile profile) {
         List<String> result = new ArrayList<>();
-
         try {
-            // --- MongoDB ---
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-                try (MongoClient client = MongoClients.create(profile.getMongoUri())) {
+            if (isMongo(profile)) {
+                try (MongoClient client = createMongoClient(profile)) {
                     client.listDatabaseNames().forEach(result::add);
                 }
                 return result;
             }
 
-            // --- JDBC ---
             Class.forName(profile.getDriverClassName());
             try (Connection conn = DriverManager.getConnection(
-                    profile.getJdbcUrl(),
-                    profile.getUsername(),
-                    profile.getPassword())) {
+                    profile.getJdbcUrl(), profile.getUsername(), profile.getPassword())) {
 
-                DatabaseMetaData metaData = conn.getMetaData();
-                String dbProduct = metaData.getDatabaseProductName().toLowerCase();
+                DatabaseMetaData meta = conn.getMetaData();
+                String dbProduct = meta.getDatabaseProductName().toLowerCase();
 
                 if (dbProduct.contains("sql server")) {
-                    try (ResultSet rs = conn.createStatement().executeQuery("SELECT name FROM sys.databases")) {
+                    try (ResultSet rs = conn.createStatement()
+                            .executeQuery("SELECT name FROM sys.databases")) {
                         while (rs.next()) result.add(rs.getString("name"));
                     }
-                } else if (dbProduct.contains("mysql")) {
+                } else if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) {
                     try (ResultSet rs = conn.createStatement().executeQuery("SHOW DATABASES")) {
                         while (rs.next()) result.add(rs.getString(1));
                     }
                 } else if (dbProduct.contains("postgresql")) {
-                    try (ResultSet rs = conn.createStatement().executeQuery(
-                            "SELECT datname FROM pg_database WHERE datistemplate = false")) {
+                    try (ResultSet rs = conn.createStatement()
+                            .executeQuery("SELECT datname FROM pg_database WHERE datistemplate = false")) {
                         while (rs.next()) result.add(rs.getString(1));
                     }
+                } else if (dbProduct.contains("h2") || dbProduct.contains("sqlite") || dbProduct.contains("derby")) {
+                    result.add(extractDatabaseName(profile.getJdbcUrl()));
+                } else if (dbProduct.contains("oracle")) {
+                    try (ResultSet rs = conn.createStatement()
+                            .executeQuery("SELECT username FROM all_users ORDER BY username")) {
+                        while (rs.next()) result.add(rs.getString("username"));
+                    }
+                } else if (dbProduct.contains("db2")) {
+                    try (ResultSet rs = conn.createStatement()
+                            .executeQuery("SELECT name FROM syscat.databases")) {
+                        while (rs.next()) result.add(rs.getString("name"));
+                    }
+                } else if (dbProduct.contains("sybase") || dbProduct.contains("sap")) {
+                    try (ResultSet rs = meta.getCatalogs()) {
+                        while (rs.next()) result.add(rs.getString("TABLE_CAT"));
+                    }
                 } else {
-                    // fallback: JDBC catalogs
-                    try (ResultSet rs = metaData.getCatalogs()) {
+                    try (ResultSet rs = meta.getCatalogs()) {
                         while (rs.next()) result.add(rs.getString("TABLE_CAT"));
                     }
                 }
             }
-
         } catch (Exception e) {
             e.printStackTrace();
         }
-
         return result;
     }
 
     public List<String> listTables(ConnectionProfile profile, String databaseName) {
+        System.out.println("profile="+profile.getJdbcUrl());
         List<String> result = new ArrayList<>();
-
         try {
-            // --- MongoDB ---
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-                ConnectionString connString = new ConnectionString(profile.getMongoUri());
-                try (MongoClient client = MongoClients.create(profile.getMongoUri())) {
-                    String dbName = databaseName != null ? databaseName : connString.getDatabase();
-                    if (dbName != null) {
-                        client.getDatabase(dbName).listCollectionNames().forEach(result::add);
-                    }
+            if (isMongo(profile)) {
+                String dbName = databaseName != null ? databaseName : new ConnectionString(profile.getMongoUri()).getDatabase();
+                try (MongoClient client = createMongoClient(profile)) {
+                    if (dbName != null) client.getDatabase(dbName).listCollectionNames().forEach(result::add);
                 }
                 return result;
             }
 
-            // --- JDBC ---
             Class.forName(profile.getDriverClassName());
             try (Connection conn = DriverManager.getConnection(
-                    profile.getJdbcUrl() + (databaseName != null ? ";databaseName=" + databaseName : ""),
-                    profile.getUsername(),
-                    profile.getPassword())) {
+                    profile.getJdbcUrl(), profile.getUsername(), profile.getPassword())) {
 
-                DatabaseMetaData metaData = conn.getMetaData();
-                String dbProduct = metaData.getDatabaseProductName().toLowerCase();
+                DatabaseMetaData meta = conn.getMetaData();
+                String dbProduct = meta.getDatabaseProductName().toLowerCase();
                 String catalog = conn.getCatalog();
-                String schemaPattern = null;
+                String schema = null;
 
                 if (dbProduct.contains("oracle") || dbProduct.contains("db2")) {
-                    schemaPattern = profile.getUsername().toUpperCase();
+                    schema = profile.getUsername().toUpperCase();
                 } else if (dbProduct.contains("postgresql")) {
-                    schemaPattern = "public";
-                } else if (dbProduct.contains("sql server")) {
-                    schemaPattern = "dbo";
+                    schema = "public";
+                } else if (dbProduct.contains("sql server") || dbProduct.contains("jtds:sqlserver")) {
+                    schema = "dbo";
+                    // Force catalog to selected database name
+                    if (databaseName != null && !databaseName.isBlank()) {
+                        catalog = databaseName;
+                    }
+                } else if (dbProduct.contains("sqlite") || dbProduct.contains("h2") || dbProduct.contains("derby")) {
+                    schema = null;
+                    catalog = null;
                 }
 
-                try (ResultSet rs = metaData.getTables(catalog, schemaPattern, "%", new String[]{"TABLE", "VIEW"})) {
-                    while (rs.next()) {
-                        String tableName = rs.getString("TABLE_NAME");
-                        if (tableName != null && !tableName.toUpperCase().startsWith("SYS")) {
-                            result.add(tableName);
-                        }
-                    }
+                try (ResultSet rs = meta.getTables(catalog, schema, "%", new String[]{"TABLE", "VIEW"})) {
+                    while (rs.next()) result.add(rs.getString("TABLE_NAME"));
                 }
             }
-
         } catch (Exception e) {
             e.printStackTrace();
         }
-
         return result;
     }
 
@@ -217,12 +220,56 @@ public class ConnectionService {
     public List<String> listStoredProcedures(ConnectionProfile profile) {
         return getMetaDataProcedures(profile);
     }
+    public List<String> listCollections(ConnectionProfile profile, String databaseName) {
+        List<String> collections = new ArrayList<>();
+        try (MongoClient mongoClient = createMongoClient(profile)) {
+            if (databaseName == null || databaseName.isEmpty()) {
+                return collections; // No database selected
+            }
+
+            MongoDatabase database = mongoClient.getDatabase(databaseName);
+            for (String name : database.listCollectionNames()) {
+                collections.add(name);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace(); // Or throw a custom exception
+        }
+        return collections;
+    }
+
+    public List<String> listCollectionFields(ConnectionProfile profile, String collectionName) {
+        List<String> fields = new ArrayList<>();
+        try (MongoClient mongoClient = createMongoClient(profile)) {
+            String databaseName = profile.getDatabaseName();
+            if (databaseName == null || databaseName.isEmpty()) {
+                return fields; // No database selected
+            }
+
+            MongoDatabase database = mongoClient.getDatabase(databaseName);
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+
+            // Get first document to inspect fields
+            Document doc = collection.find().first();
+            if (doc != null) {
+                for (String key : doc.keySet()) {
+                    // Optionally, include type info
+                    Object value = doc.get(key);
+                    String type = value != null ? value.getClass().getSimpleName() : "null";
+                    fields.add(key + " " + type); // similar to "columnName columnType"
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace(); // or throw custom exception
+        }
+        return fields;
+    }
 
     public List<String> listColumns(ConnectionProfile profile, String table) {
         List<String> columns = new ArrayList<>();
         if (isMongo(profile)) {
             try (MongoClient client = createMongoClient(profile)) {
-                MongoDatabase db = client.getDatabase(new ConnectionString(profile.getMongoUri()).getDatabase());
+                MongoDatabase db = client.getDatabase(profile.getDatabaseName());
                 MongoCollection<Document> coll = db.getCollection(table);
                 Document doc = coll.find().first();
                 if (doc != null) columns.addAll(doc.keySet());

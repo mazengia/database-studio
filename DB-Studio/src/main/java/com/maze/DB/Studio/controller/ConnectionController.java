@@ -4,17 +4,20 @@ import com.maze.DB.Studio.model.ConnectionProfile;
 import com.maze.DB.Studio.service.ConnectionService;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.util.List;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.web.multipart.MultipartFile;
+
+import static com.maze.DB.Studio.util.JdbcUrlParser.extractDatabaseName;
+import static com.maze.DB.Studio.util.JdbcUrlParser.extractHost;
 
 @Controller
 @RequiredArgsConstructor
@@ -34,25 +37,46 @@ public class ConnectionController {
     @PostMapping("/connect")
     public String connect(@ModelAttribute ConnectionProfile profile, Model model) {
         try {
+            // Test the connection first
             service.testConnection(profile);
-            profile.setServerName(extractServerName(profile.getJdbcUrl()));
-            model.addAttribute("profile", profile);
-            if (profile.getJdbcUrl().toLowerCase().contains("databasename=")) {
-                profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
-                model.addAttribute("tables", service.listTablesOrDatabases(profile));
-            }
-            else{
-                model.addAttribute("databases", service.listTablesOrDatabases(profile));
+
+            boolean mongo = isMongo(profile);
+            String dbName = null;
+            String serverName = null;
+
+            if (mongo) {
+                serverName = extractMongoServerName(profile.getMongoUri());
+                dbName = extractMongoDatabaseName(profile.getMongoUri());
+            } else {
+                serverName = extractHost(profile.getJdbcUrl());
+                // For JDBC URLs, attempt to extract the database name if present
+                dbName = extractDatabaseName(profile.getJdbcUrl());
             }
 
-            if (profile.getMongoUri() == null || profile.getMongoUri().isEmpty()) {
+            // Set extracted info into profile
+            profile.setServerName(serverName);
+            profile.setDatabaseName(dbName);
+            model.addAttribute("profile", profile);
+            // Determine whether to list databases or tables
+            if (dbName != null &&  !dbName.isEmpty()) {
+                // Database selected: list tables/collections
+                model.addAttribute("tables", service.listTables(profile, dbName));
+            } else {
+                // No database selected: list all databases
+                model.addAttribute("databases", service.listDatabases(profile));
+                System.out.println("database="+model.getAttribute("database"));
+            }
+
+            // If JDBC, add views and stored procedures
+            if (!mongo) {
                 model.addAttribute("views", service.listViews(profile));
                 model.addAttribute("procedures", service.listStoredProcedures(profile));
             }
 
             return "columns";
+
         } catch (Exception e) {
-            model.addAttribute("error", e.getMessage());
+            model.addAttribute("error", service.getFriendlyErrorMessage(e, profile));
             model.addAttribute("profile", profile);
             return "connect";
         }
@@ -64,73 +88,136 @@ public class ConnectionController {
                               @RequestParam(required = false) String database,
                               @RequestParam(required = false) String sql,
                               Model model) {
-
-        profile.setDatabaseName(database);
         model.addAttribute("profile", profile);
-        // Populate tables if database selected
-        if (database != null && !database.isBlank()) {
-            if (!profile.getJdbcUrl().toLowerCase().contains("databasename=")) {
-                profile.setJdbcUrl(profile.getJdbcUrl() + ";databaseName=" + database);
+
+        if (isMongo(profile)) {
+            profile.setDatabaseName(database);
+            model.addAttribute("databases", service.listDatabases(profile));
+        } else {
+            if (database != null && !database.isBlank()) {
+                profile.setDatabaseName(database);
+                String jdbcUrl = profile.getJdbcUrl().trim().toLowerCase();
+
+                // Detect DB type from JDBC URL
+                if (jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:")) {
+                    if (!jdbcUrl.matches(".*/" + database + "(\\?.*)?$")) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + "/" + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:postgresql:")) {
+                    if (!jdbcUrl.matches(".*/" + database + "(\\?.*)?$")) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:h2:")) {
+                    // H2 can be mem: or file: just append database name if missing
+                    if (!jdbcUrl.contains(database)) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
+                    // Oracle thin URL: append :SID if not present
+                    if (!jdbcUrl.endsWith(":" + database)) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + ":" + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:sqlserver:") || jdbcUrl.startsWith("jdbc:jtds:sqlserver:")) {
+                    if (!jdbcUrl.contains("databasename=")) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + ";databaseName=" + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:db2:")) {
+                    if (!jdbcUrl.matches(".*/" + database + "(\\:.*)?$")) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + "/" + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:sybase:") || jdbcUrl.startsWith("jdbc:sap:")) {
+                    if (!jdbcUrl.matches(".*/" + database + "(\\?.*)?$")) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + "/" + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:derby:")) {
+                    if (!jdbcUrl.contains(database)) {
+                        profile.setJdbcUrl(profile.getJdbcUrl() + database);
+                    }
+                } else if (jdbcUrl.startsWith("jdbc:sqlite:")) {
+                    // SQLite uses file path; skip modification
+                }
+                System.out.println("jdbcUrl="+jdbcUrl);
             }
+            model.addAttribute("databases", service.listDatabases(profile));
+        }
+
+        if (database != null && !database.isBlank()) {
             model.addAttribute("tables", service.listTables(profile, database));
         }
 
-        // Populate columns if table selected
         if (table != null && !table.isBlank()) {
             model.addAttribute("table", table);
             model.addAttribute("tableColumns", service.listColumns(profile, table));
         }
 
-        // Run query if provided
         if (sql != null && !sql.trim().isEmpty()) {
-            runQueryInternal(profile, sql, model); // populates "results"
+            runQueryInternal(profile, sql, model);
         }
 
         return "columns";
     }
 
 
-    public String extractServerName(String jdbcUrl) {
+    public String extractMongoDatabaseName(String mongoUrl) {
         try {
-            String withoutPrefix = jdbcUrl.substring(jdbcUrl.indexOf("//") + 2);
-            String hostPort = withoutPrefix.split("[/;]")[0];
-            return hostPort.contains(":") ? hostPort.split(":")[0] : hostPort;
-        } catch (Exception e) {
-            return "Unknown";
-        }
-    }
-
-    public String extractDatabaseName(String jdbcUrl) {
-        try {
-            String[] parts = jdbcUrl.split(";");
-            for (String part : parts) {
-                if (part.trim().toLowerCase().startsWith("databasename=")) {
-                    return part.split("=", 2)[1];
-                }
+            if (mongoUrl == null || mongoUrl.isEmpty()) return null;
+            mongoUrl = mongoUrl.trim();
+            String noOptions = mongoUrl.contains("?") ? mongoUrl.substring(0, mongoUrl.indexOf('?')) : mongoUrl;
+            int lastSlash = noOptions.indexOf('/', mongoUrl.indexOf("://") + 3);
+            if (lastSlash >= 0 && lastSlash + 1 < noOptions.length()) {
+                String db = noOptions.substring(lastSlash + 1);
+                return db.isEmpty() ? null : db;
             }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public String extractMongoServerName(String url) {
+        try {
+            if (url == null || url.isEmpty()) return "Unknown";
+            url = url.trim();
+
+            if (url.startsWith("mongodb://") || url.startsWith("mongodb+srv://")) {
+                String noProtocol = url.substring(url.indexOf("://") + 3);
+                if (noProtocol.contains("@")) noProtocol = noProtocol.substring(noProtocol.indexOf("@") + 1);
+
+                int endIdx = noProtocol.indexOf('/');
+                if (endIdx < 0) endIdx = noProtocol.indexOf('?');
+                if (endIdx < 0) endIdx = noProtocol.length();
+
+                String hostPort = noProtocol.substring(0, endIdx);
+                return hostPort.contains(":") ? hostPort.split(":")[0] : hostPort;
+            }
+
+            if (url.contains("//")) {
+                String withoutPrefix = url.substring(url.indexOf("//") + 2);
+                String hostPort = withoutPrefix.split("[/;]")[0];
+                return hostPort.contains(":") ? hostPort.split(":")[0] : hostPort;
+            }
+
             return "Unknown";
+
         } catch (Exception e) {
             return "Unknown";
         }
     }
 
-
+    private boolean isMongo(ConnectionProfile profile) {
+        return profile.getMongoUri() != null && !profile.getMongoUri().isEmpty();
+    }
 
     @PostMapping("/backup")
     public String backupDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
-
-        profile.setServerName(extractServerName(profile.getJdbcUrl()));
+        profile.setServerName(extractHost(profile.getJdbcUrl()));
         profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
 
         boolean success;
         try {
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-                success = service.backupMongo(profile);
-            } else {
-                success = service.backupJdbc(profile);
-            }
+            success = isMongo(profile) ? service.backupMongo(profile) : service.backupJdbc(profile);
             if (success) {
                 model.addAttribute("message", "Backup successful");
                 model.addAttribute("error", null);
@@ -139,11 +226,9 @@ public class ConnectionController {
                 model.addAttribute("message", null);
             }
         } catch (Exception e) {
-            e.printStackTrace();
             model.addAttribute("error", "Backup failed: " + e.getMessage());
             model.addAttribute("message", null);
         }
-
         return "columns";
     }
 
@@ -156,11 +241,7 @@ public class ConnectionController {
 
         boolean success;
         try {
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-                success = service.restoreMongo(profile, file);
-            } else {
-                success = service.restoreJdbc(profile, file);
-            }
+            success = isMongo(profile) ? service.restoreMongo(profile, file) : service.restoreJdbc(profile, file);
             if (success) {
                 model.addAttribute("message", "Restore successful");
                 model.addAttribute("error", null);
@@ -169,20 +250,17 @@ public class ConnectionController {
                 model.addAttribute("message", null);
             }
         } catch (Exception e) {
-            e.printStackTrace();
             model.addAttribute("error", "Restore failed: " + e.getMessage());
             model.addAttribute("message", null);
         }
-
         return "columns";
     }
 
-    // Internal method to avoid duplicate code
     private void runQueryInternal(ConnectionProfile profile, String sql, Model model) {
         model.addAttribute("sql", sql);
         try {
             List<List<Object>> results;
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
+            if (isMongo(profile)) {
                 results = service.executeMongoQuery(profile, sql);
             } else if (sql.trim().toLowerCase().startsWith("select")) {
                 results = service.executeSelectQuery(profile, sql);
@@ -191,47 +269,39 @@ public class ConnectionController {
                 model.addAttribute("message", affected + " row(s) affected.");
                 return;
             }
+
             model.addAttribute("results", results);
             if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
+
         } catch (Exception e) {
             model.addAttribute("error", "Query Error: " + e.getMessage());
         }
     }
+
     @PostMapping("/generate-excel")
     public ResponseEntity<byte[]> generateExcel(@ModelAttribute ConnectionProfile profile,
                                                 @RequestParam String sql) {
         try {
-            List<List<Object>> results;
-            if (profile.getMongoUri() != null && !profile.getMongoUri().isEmpty()) {
-                results = service.executeMongoQuery(profile, sql);
-            } else if (sql.trim().toLowerCase().startsWith("select")) {
-                results = service.executeSelectQuery(profile, sql);
-            } else {
-                return ResponseEntity.badRequest().body(null);
-            }
+            List<List<Object>> results = isMongo(profile) ? service.executeMongoQuery(profile, sql)
+                    : sql.trim().toLowerCase().startsWith("select") ? service.executeSelectQuery(profile, sql)
+                    : null;
 
-            if (results.isEmpty()) {
-                return ResponseEntity.noContent().build();
-            }
+            if (results == null || results.isEmpty()) return ResponseEntity.noContent().build();
 
             Workbook workbook = new XSSFWorkbook();
             Sheet sheet = workbook.createSheet("Query Results");
 
-            // Header row
             Row header = sheet.createRow(0);
             List<Object> columns = results.get(0);
             for (int i = 0; i < columns.size(); i++) {
-                Cell cell = header.createCell(i);
-                cell.setCellValue(columns.get(i).toString());
+                header.createCell(i).setCellValue(columns.get(i).toString());
             }
 
-            // Data rows
             for (int i = 1; i < results.size(); i++) {
                 Row row = sheet.createRow(i);
                 List<Object> rowData = results.get(i);
                 for (int j = 0; j < rowData.size(); j++) {
-                    Cell cell = row.createCell(j);
-                    cell.setCellValue(rowData.get(j) != null ? rowData.get(j).toString() : "");
+                    row.createCell(j).setCellValue(rowData.get(j) != null ? rowData.get(j).toString() : "");
                 }
             }
 

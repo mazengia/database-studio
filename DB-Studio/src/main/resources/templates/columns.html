@@ -1,9 +1,14 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <head>
-    <title>Maze DB Studio | Connect</title>
+    <title>Maze DB Studio</title>
+
+    <!-- Favicon using Font Awesome icon -->
+    <link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill="%230d6efd" d="M448 64H64C28.65 64 0 80.65 0 104v304c0 23.35 28.65 40 64 40h384c35.35 0 64-16.65 64-40V104c0-23.35-28.65-40-64-40zm-8 328c0 7.75-22.9 24-56 24H128c-33.1 0-56-16.25-56-24V264h368v128zm0-168H72V120c0-7.75 22.9-24 56-24h256c33.1 0 56 16.25 56 24v104z"/></svg>'>
+
     <link rel="stylesheet" href="/webjars/bootstrap/5.3.2/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
     <style>
         /* --- Global Styles --- */
         body {
@@ -51,7 +56,7 @@
             border-radius: 16px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.08);
             padding: 25px;
-            max-height: 90vh;
+            max-height: 100vh;
             overflow-y: auto;
             transition: all 0.3s ease;
         }
@@ -153,27 +158,55 @@
     <div class="servers">
         <i class="fa-solid fa-server text-secondary"></i>
         <span th:text="${profile.serverName != null ? profile.serverName : 'No Database Selected'}"></span>
+        <!-- Show count -->
+        <span class="ms-2 text-muted small">
+            (<span th:text="${databases != null ? #lists.size(databases) : 0}"></span> DB)
+        </span>
     </div>
-    <div class="database">
-        <i class="fa-solid fa-database text-primary"></i>
-        <span th:text="${profile.databaseName != null ? profile.databaseName : 'No Database Selected'}">Database_Name</span>
+    <div class="active-database d-flex align-items-center">
+        <form th:action="@{/db/columns}" method="post" class="d-flex align-items-center w-100">
+            <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}" />
+            <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}" />
+            <input type="hidden" name="mongoUri" th:value="${profile.mongoUri}" />
+            <input type="hidden" name="username" th:value="${profile.username}" />
+            <input type="hidden" name="password" th:value="${profile.password}" />
+            <input type="hidden" name="serverName" th:value="${profile.serverName}" />
+
+            <i class="fa-solid fa-database text-primary me-2"></i>
+            <select name="database" class="form-select form-select-sm me-2"
+                    onchange="this.form.submit()">
+                <option value="" disabled
+                        th:selected="${profile.databaseName == null}">
+                    Select Database
+                </option>
+                <option th:each="db : ${databases}"
+                        th:value="${db}"
+                        th:text="${db}"
+                        th:selected="${profile.databaseName == db}">
+                </option>
+            </select>
+        </form>
+    </div>
+
+    <div th:if="${profile.databaseName != null}" class="active-database d-flex gap-2 mt-3">
+        <form th:action="@{/db/restore}" method="post" enctype="multipart/form-data" class="d-flex">
+            <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}"/>
+            <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}"/>
+            <input type="hidden" name="mongoUri" th:value="${profile.mongoUri}" />
+            <input type="hidden" name="username" th:value="${profile.username}"/>
+            <input type="hidden" name="password" th:value="${profile.password}"/>
+            <input type="file" name="file" required class="form-control form-control-sm me-1">
+            <button class="btn btn-warning btn-sm"><i class="fa-solid fa-cloud-arrow-down me-1"></i> Restore</button>
+        </form>
     </div>
     <div th:if="${profile.databaseName != null}" class="d-flex gap-2 mt-3">
         <form th:action="@{/db/backup}" method="post">
             <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}"/>
             <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}"/>
+            <input type="hidden" name="mongoUri" th:value="${profile.mongoUri}" />
             <input type="hidden" name="username" th:value="${profile.username}"/>
             <input type="hidden" name="password" th:value="${profile.password}"/>
             <button class="btn btn-success btn-sm"><i class="fa-solid fa-cloud-arrow-up me-1"></i> Backup</button>
-        </form>
-
-        <form th:action="@{/db/restore}" method="post" enctype="multipart/form-data" class="d-flex">
-            <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}"/>
-            <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}"/>
-            <input type="hidden" name="username" th:value="${profile.username}"/>
-            <input type="hidden" name="password" th:value="${profile.password}"/>
-            <input type="file" name="file" required class="form-control form-control-sm me-1">
-            <button class="btn btn-warning btn-sm"><i class="fa-solid fa-cloud-arrow-down me-1"></i> Restore</button>
         </form>
     </div>
 </div>
@@ -189,50 +222,29 @@
     <small class="text-secondary">Tip: Click on a table or database to get started.</small>
 </div>
 
-<div class="row g-4">
+<div class="row">
     <!-- Sidebar -->
     <div class="col-lg-3 col-md-12">
         <div class="sidebar">
-            <!-- Dynamic Databases and Tables -->
-            <h4 th:if="${!profile.jdbcUrl.toLowerCase().contains('databasename=')}">
-                <i class="fa-solid fa-database me-2 text-secondary"></i> Databases
+            <h4>
+                <i class="fa-solid fa-database me-2 text-secondary"></i>Active Database
             </h4>
-            <ul>
-                <li th:each="t : ${databases}">
-                    <form th:action="@{/db/columns}" method="post" style="display:inline;">
-                        <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}" />
-                        <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}" />
-                        <input type="hidden" name="username" th:value="${profile.username}" />
-                        <input type="hidden" name="password" th:value="${profile.password}" />
-                        <input type="hidden" name="serverName" th:value="${profile.serverName}" />
-
-                        <div th:if="${profile.databaseName !=null }">
-                            <input type="hidden" name="table" th:value="${t}" />
-                            <button class="btn btn-link p-0 d-flex align-items-center" type="submit">
-                                <i class="fa-solid fa-table me-2 text-secondary"></i>
-                                <span th:text="${t}"></span>
-                            </button>
-                        </div>
-
-                        <div th:if="${profile.databaseName == null }">
-                            <input type="hidden" name="database" th:value="${t}" />
-                            <button class="btn btn-link p-0 d-flex align-items-center" type="submit">
-                                <i class="fa-solid fa-database me-2 text-secondary"></i>
-                                <span th:text="${t}"></span>
-                            </button>
-                        </div>
-                    </form>
-                </li>
-            </ul>
-
             <!-- Active Database -->
             <div class="active-database">
-                <span>
-                    <i class="fa-solid fa-database text-primary me-2"></i>
-                    <strong th:text="${profile.databaseName}">Database_Name</strong>
-                </span>
-                <span class="badge bg-info text-dark" th:text="${tables != null} ? ${tables.size()} + ' Tables' : ''"></span>
+                <div th:if="${profile.databaseName != null}">
+                    <span>
+                        <i class="fa-solid fa-database text-primary me-2"></i>
+                        <strong th:text="${profile.databaseName}">Database_Name</strong>
+                    </span>
+                    <span class="badge bg-info text-dark"
+                          th:text="${tables != null} ? ${tables.size()} + ' Tables' : '0 Tables'"></span>
+                </div>
+
+                <div th:if="${profile.databaseName == null}" class="alert alert-warning mt-2" role="alert">
+                    ⚠️ Please select a database first!
+                </div>
             </div>
+
 
             <!-- Tables -->
             <h4 th:if="${tables != null}"><i class="fa-solid fa-table-list me-2"></i> Tables</h4>
@@ -241,6 +253,7 @@
                     <form th:action="@{/db/columns}" method="post">
                         <input type="hidden" name="driverClassName" th:value="${profile.driverClassName}"/>
                         <input type="hidden" name="jdbcUrl" th:value="${profile.jdbcUrl}"/>
+                        <input type="hidden" name="mongoUri" th:value="${profile.mongoUri}" />
                         <input type="hidden" name="username" th:value="${profile.username}"/>
                         <input type="hidden" name="password" th:value="${profile.password}"/>
                         <input type="hidden" name="database" th:value="${profile.databaseName}"/>
@@ -253,7 +266,6 @@
                             <span th:text="${t}"></span>
                         </button>
                     </form>
-
                     <div class="columns mt-1 ps-3" th:if="${table == t}">
                         <ul>
                             <li th:each="c : ${tableColumns}">
@@ -269,12 +281,14 @@
     </div>
 
     <!-- Right Content -->
-    <div class="col-lg-9 col-md-12">
+    <div th:if="${profile.databaseName !=null }"
+            class="col-lg-9 col-md-12">
         <div class="card-custom query-editor">
             <h4 class="mb-3"><i class="fa-solid fa-code me-2"></i> Query Editor</h4>
             <form th:action="@{/db/columns}" method="post" th:object="${profile}">
                 <input type="hidden" th:field="*{driverClassName}">
                 <input type="hidden" th:field="*{jdbcUrl}">
+                <input type="hidden" name="mongoUri" th:value="${profile.mongoUri}" />
                 <input type="hidden" th:field="*{username}">
                 <input type="hidden" th:field="*{password}">
                 <input type="hidden" name="database" th:value="${profile.databaseName}"/>
@@ -286,7 +300,6 @@
             <p th:text="${error}" class="text-danger mt-2"></p>
             <p th:text="${message}" class="text-success mt-2"></p>
         </div>
-
         <div class="card-custom results-card" th:if="${results != null}">
             <h4><i class="fa-solid fa-table-list me-2"></i> Query Results</h4>
             <div class="table-responsive">
@@ -301,6 +314,5 @@
         </div>
     </div>
 </div>
-
 </body>
 </html>

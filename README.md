@@ -1,5 +1,52 @@
-# database-studio
+# Database Studio
 
-=> to get all record from mongo collection authorizelog , write only =  authorizelog  then click run
-=> to get all records by using filter from collection authorizelog, use   query = authorizelog|{"maintainer.employeeId":"EB-1009"}
-  then click run
+Database Studio is a tool for exploring databases, viewing tables/collections, inspecting columns/fields, and running queries.
+
+---
+
+## MongoDB Usage
+
+### 1. Get all records from a collection
+To retrieve all records from a MongoDB collection, enter only the **collection name**:
+
+Example:
+
+authorizelog
+
+Then click **Run**.
+
+---
+
+### 2. Get records with a filter
+To query records with a filter, use the following format:
+
+collectionName|{"field":"value"}
+
+
+- The part before the `|` is the **collection name**.
+- The JSON after `|` is the **filter criteria**.
+
+Example:
+
+authorizelog|{"maintainer.employeeId":"EB-1009"}
+
+
+Then click **Run** to execute the query.
+
+---
+
+## SQL / JDBC Usage
+
+### 1. Select a database
+Choose a database from the dropdown list in the top header.  
+If a database is not selected, you can only browse the list of databases.
+
+### 2. View tables
+After selecting a database, the sidebar will display the list of tables.  
+Click a table to view its columns.
+
+### 3. Run SQL queries
+Use the **Query Editor** to write and execute SQL queries:
+
+```sql
+SELECT * FROM employees;
