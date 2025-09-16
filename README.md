@@ -50,3 +50,33 @@ Use the **Query Editor** to write and execute SQL queries:
 
 ```sql
 SELECT * FROM employees;
+
+
+
+---   install application on local machine
+ 
+
+### 1. Build the project
+Make sure you have **Maven** and **Java 21+** installed.  
+Run the following commands from the project root:
+
+```bash
+mvn clean
+mvn package
+
+*. Run the application
+### 2. After building, start the application with:
+
+java -jar DB-Studio-0.0.1-SNAPSHOT.jar
+
+### 3. Access the application
+
+http://localhost:8080/db
+
+
+Run on a different port
+
+To use a different port (for example 9090), run:
+
+    java -jar DB-Studio-0.0.1-SNAPSHOT.jar --server.port=9090
+Then access:   http://localhost:9090/db

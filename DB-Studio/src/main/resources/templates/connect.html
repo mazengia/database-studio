@@ -106,7 +106,7 @@
                         </div>
                         <select id="mongoTemplateSelect" class="form-select mb-3">
                             <option value="">-- Select Sample MongoDB URI --</option>
-                            <option value="mongodb://host:27017/dbname">Standalone</option>
+                            <option value="mongodb://localhost:27017/dbname">Standalone</option>
                             <option value="mongodb://user:pass@host:27017/dbname">With Authentication</option>
                             <option value="mongodb://host1:27017,host2:27017,host3:27017/dbname?replicaSet=rs0">Replica
                                 set
@@ -144,17 +144,17 @@
 
         const jdbcTemplates = {
             "org.h2.Driver": "jdbc:h2:mem:testdb",
-            "com.mysql.cj.jdbc.Driver": "jdbc:mysql://host:3306/dbname",
-            "org.postgresql.Driver": "jdbc:postgresql://host:5432/dbname",
-            "oracle.jdbc.OracleDriver": "jdbc:oracle:thin:@host:1521:orcl",
-            "com.microsoft.sqlserver.jdbc.SQLServerDriver": "jdbc:sqlserver://host:1433;encrypt=false;instanceName=INSTANCE;databaseName=dbname;encrypt=false",
-            "org.mariadb.jdbc.Driver": "jdbc:mariadb://host:3306/dbname",
+            "com.mysql.cj.jdbc.Driver": "jdbc:mysql://localhost:3306/dbname",
+            "org.postgresql.Driver": "jdbc:postgresql://localhost:5432/dbname",
+            "oracle.jdbc.OracleDriver": "jdbc:oracle:thin:@localhost:1521:orcl",
+            "com.microsoft.sqlserver.jdbc.SQLServerDriver": "jdbc:sqlserver://localhost:1433;encrypt=false;instanceName=INSTANCE;databaseName=dbname;encrypt=false",
+            "org.mariadb.jdbc.Driver": "jdbc:mariadb://localhost:3306/dbname",
             "org.sqlite.JDBC": "jdbc:sqlite:/path/to/dbfile.db",
-            "com.ibm.db2.jcc.DB2Driver": "jdbc:db2://host:50000/dbname",
-            "com.sybase.jdbc4.jdbc.SybDriver": "jdbc:sybase:Tds:host:5000/dbname",
-            "com.sap.db.jdbc.Driver": "jdbc:sap://host:30015/dbname",
+            "com.ibm.db2.jcc.DB2Driver": "jdbc:db2://localhost:50000/dbname",
+            "com.sybase.jdbc4.jdbc.SybDriver": "jdbc:sybase:Tds:localhost:5000/dbname",
+            "com.sap.db.jdbc.Driver": "jdbc:sap://localhost:30015/dbname",
             "org.apache.derby.jdbc.EmbeddedDriver": "jdbc:derby:/path/to/db;create=true",
-            "net.sourceforge.jtds.jdbc.Driver": "jdbc:jtds:sqlserver://host:1433/dbname"
+            "net.sourceforge.jtds.jdbc.Driver": "jdbc:jtds:sqlserver://localhost:1433/dbname"
         };
 
         driverSelect.addEventListener("change", function () {
