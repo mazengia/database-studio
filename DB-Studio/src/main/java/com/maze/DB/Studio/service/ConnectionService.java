@@ -643,5 +643,42 @@ public class ConnectionService {
         }
         return "Connection failed. Please verify your details and try again.";
     }
+    public Connection getConnection(ConnectionProfile profile) throws SQLException {
+        String jdbcUrl = profile.getJdbcUrl();
+        String username = profile.getUsername();
+        String password = profile.getPassword();
 
+        try {
+            // Detect driver class based on JDBC URL
+            if (jdbcUrl.startsWith("jdbc:postgresql:")) {
+                Class.forName("org.postgresql.Driver");
+            } else if (jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:")) {
+                Class.forName("com.mysql.cj.jdbc.Driver");
+            } else if (jdbcUrl.startsWith("jdbc:sqlserver:")) {
+                Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+            } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
+                Class.forName("oracle.jdbc.OracleDriver");
+            } else if (jdbcUrl.startsWith("jdbc:h2:")) {
+                Class.forName("org.h2.Driver");
+            } else if (jdbcUrl.startsWith("jdbc:sqlite:")) {
+                Class.forName("org.sqlite.JDBC");
+            } else if (jdbcUrl.startsWith("jdbc:db2:")) {
+                Class.forName("com.ibm.db2.jcc.DB2Driver");
+            } else if (jdbcUrl.startsWith("jdbc:sybase:") || jdbcUrl.startsWith("jdbc:sap:")) {
+                Class.forName("com.sybase.jdbc4.jdbc.SybDriver");
+            } else if (jdbcUrl.startsWith("jdbc:derby:")) {
+                Class.forName("org.apache.derby.jdbc.ClientDriver");
+            }
+        } catch (ClassNotFoundException e) {
+            throw new SQLException("JDBC Driver not found for URL: " + jdbcUrl, e);
+        }
+
+        // SQLite usually has no username/password
+        if (jdbcUrl.startsWith("jdbc:sqlite:")) {
+            return DriverManager.getConnection(jdbcUrl);
+        }
+
+        // Normal case: username + password
+        return DriverManager.getConnection(jdbcUrl, username, password);
+    }
 }

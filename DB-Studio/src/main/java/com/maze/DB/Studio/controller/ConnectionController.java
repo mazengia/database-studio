@@ -14,6 +14,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
 import static com.maze.DB.Studio.util.JdbcUrlParser.extractDatabaseName;
@@ -90,73 +95,62 @@ public class ConnectionController {
                               Model model) {
         model.addAttribute("profile", profile);
 
+        // Handle Mongo separately
         if (isMongo(profile)) {
             profile.setDatabaseName(database);
             model.addAttribute("databases", service.listDatabases(profile));
         } else {
             if (database != null && !database.isBlank()) {
                 profile.setDatabaseName(database);
-                String jdbcUrl = profile.getJdbcUrl().trim().toLowerCase();
+                String jdbcUrl = profile.getJdbcUrl().trim();
 
-                // Detect DB type from JDBC URL
+                // Update JDBC URL dynamically based on database
                 if (jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:")) {
-                    if (!jdbcUrl.matches(".*/" + database + "(\\?.*)?$")) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + "/" + database);
-                    }
+                    jdbcUrl = jdbcUrl.replaceAll("/[^/?]+", "/" + database);
                 } else if (jdbcUrl.startsWith("jdbc:postgresql:")) {
-                    if (!jdbcUrl.matches(".*/" + database + "(\\?.*)?$")) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + database);
-                    }
+                    jdbcUrl = jdbcUrl.replaceAll("/[^/?]+", "/" + database);
                 } else if (jdbcUrl.startsWith("jdbc:h2:")) {
-                    // H2 can be mem: or file: just append database name if missing
-                    if (!jdbcUrl.contains(database)) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + database);
-                    }
+                    jdbcUrl = jdbcUrl.replaceAll("([^:/]+)$", database);
                 } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
-                    // Oracle thin URL: append :SID if not present
-                    if (!jdbcUrl.endsWith(":" + database)) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + ":" + database);
-                    }
+                    jdbcUrl = jdbcUrl.replaceAll(":([^:]+)$", ":" + database);
                 } else if (jdbcUrl.startsWith("jdbc:sqlserver:") || jdbcUrl.startsWith("jdbc:jtds:sqlserver:")) {
-                    if (!jdbcUrl.contains("databasename=")) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + ";databaseName=" + database);
+                    if (jdbcUrl.toLowerCase().contains("databasename=")) {
+                        jdbcUrl = jdbcUrl.replaceAll("(?i)databaseName=[^;]+", "databaseName=" + database);
+                    } else {
+                        jdbcUrl += ";databaseName=" + database;
                     }
                 } else if (jdbcUrl.startsWith("jdbc:db2:")) {
-                    if (!jdbcUrl.matches(".*/" + database + "(\\:.*)?$")) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + "/" + database);
-                    }
+                    jdbcUrl = jdbcUrl.replaceAll("/[^:]+", "/" + database);
                 } else if (jdbcUrl.startsWith("jdbc:sybase:") || jdbcUrl.startsWith("jdbc:sap:")) {
-                    if (!jdbcUrl.matches(".*/" + database + "(\\?.*)?$")) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + "/" + database);
-                    }
+                    jdbcUrl = jdbcUrl.replaceAll("/[^/?]+", "/" + database);
                 } else if (jdbcUrl.startsWith("jdbc:derby:")) {
-                    if (!jdbcUrl.contains(database)) {
-                        profile.setJdbcUrl(profile.getJdbcUrl() + database);
-                    }
-                } else if (jdbcUrl.startsWith("jdbc:sqlite:")) {
-                    // SQLite uses file path; skip modification
+                    jdbcUrl = jdbcUrl.replaceAll("([^:;]+)$", database);
                 }
-                System.out.println("jdbcUrl="+jdbcUrl);
+                // SQLite: skip
+
+                profile.setJdbcUrl(jdbcUrl);
+                model.addAttribute("databases", service.listDatabases(profile));
             }
-            model.addAttribute("databases", service.listDatabases(profile));
         }
 
+        // List tables
         if (database != null && !database.isBlank()) {
             model.addAttribute("tables", service.listTables(profile, database));
         }
 
+        // List columns
         if (table != null && !table.isBlank()) {
             model.addAttribute("table", table);
             model.addAttribute("tableColumns", service.listColumns(profile, table));
         }
 
+        // Run any SQL query
         if (sql != null && !sql.trim().isEmpty()) {
             runQueryInternal(profile, sql, model);
         }
 
         return "columns";
     }
-
 
     public String extractMongoDatabaseName(String mongoUrl) {
         try {
@@ -214,6 +208,7 @@ public class ConnectionController {
         profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
+        model.addAttribute("databases", service.listDatabases(profile));
 
         boolean success;
         try {
@@ -238,6 +233,7 @@ public class ConnectionController {
                                   Model model) {
         model.addAttribute("profile", profile);
         model.addAttribute("tables", service.listTablesOrDatabases(profile));
+        model.addAttribute("databases", service.listDatabases(profile));
 
         boolean success;
         try {
@@ -258,25 +254,92 @@ public class ConnectionController {
 
     private void runQueryInternal(ConnectionProfile profile, String sql, Model model) {
         model.addAttribute("sql", sql);
+
         try {
-            List<List<Object>> results;
             if (isMongo(profile)) {
-                results = service.executeMongoQuery(profile, sql);
-            } else if (sql.trim().toLowerCase().startsWith("select")) {
-                results = service.executeSelectQuery(profile, sql);
-            } else {
-                int affected = service.executeUpdateQuery(profile, sql);
-                model.addAttribute("message", affected + " row(s) affected.");
+                List<List<Object>> results = service.executeMongoQuery(profile, sql);
+                model.addAttribute("results", results);
+                if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
                 return;
             }
 
-            model.addAttribute("results", results);
-            if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
+            // Only normalize for DBs that need it (SQL Server, Oracle)
+            sql = normalizeQueryForDb(profile.getJdbcUrl(), sql);
+
+            try (Connection conn = service.getConnection(profile);
+                 Statement stmt = conn.createStatement()) {
+
+                boolean hasResultSet = stmt.execute(sql);
+
+                if (hasResultSet) {
+                    try (ResultSet rs = stmt.getResultSet()) {
+                        List<List<Object>> results = new ArrayList<>();
+                        ResultSetMetaData meta = rs.getMetaData();
+                        int colCount = meta.getColumnCount();
+
+                        // Header row
+                        List<Object> headers = new ArrayList<>();
+                        for (int i = 1; i <= colCount; i++) headers.add(meta.getColumnLabel(i));
+                        results.add(headers);
+
+                        // Data rows
+                        while (rs.next()) {
+                            List<Object> row = new ArrayList<>();
+                            for (int i = 1; i <= colCount; i++) row.add(rs.getObject(i));
+                            results.add(row);
+                        }
+
+                        model.addAttribute("results", results);
+                        model.addAttribute("resultColumns", headers);
+                        model.addAttribute("message", "Query executed successfully.");
+                    }
+                } else {
+                    int updateCount = stmt.getUpdateCount();
+                    model.addAttribute("message", "Query executed, " + updateCount + " row(s) affected.");
+                }
+
+            }
 
         } catch (Exception e) {
             model.addAttribute("error", "Query Error: " + e.getMessage());
         }
     }
+
+    /**
+     * Normalize SQL for databases that do not support LIMIT directly.
+     */
+    private String normalizeQueryForDb(String jdbcUrl, String sql) {
+        if (jdbcUrl.startsWith("jdbc:sqlserver:") || jdbcUrl.startsWith("jdbc:oracle:")) {
+            String lowerSql = sql.trim().toLowerCase();
+            int limitIndex = lowerSql.lastIndexOf("limit");
+
+            if (limitIndex != -1) {
+                // Extract everything after LIMIT
+                String limitPart = sql.substring(limitIndex + 5).trim();
+
+                // Try to extract a number only
+                StringBuilder num = new StringBuilder();
+                for (char c : limitPart.toCharArray()) {
+                    if (Character.isDigit(c)) num.append(c);
+                    else break;
+                }
+
+                if (num.length() > 0) {
+                    int limitValue = Integer.parseInt(num.toString());
+                    String baseQuery = sql.substring(0, limitIndex).trim();
+
+                    if (jdbcUrl.startsWith("jdbc:sqlserver:")) {
+                        sql = baseQuery.replaceFirst("(?i)select", "SELECT TOP " + limitValue);
+                    } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
+                        sql = baseQuery + " FETCH FIRST " + limitValue + " ROWS ONLY";
+                    }
+                } // else: ignore LIMIT if no number
+            }
+        }
+
+        return sql;
+    }
+
 
     @PostMapping("/generate-excel")
     public ResponseEntity<byte[]> generateExcel(@ModelAttribute ConnectionProfile profile,
