@@ -220,50 +220,7 @@ public class ConnectionService {
     public List<String> listStoredProcedures(ConnectionProfile profile) {
         return getMetaDataProcedures(profile);
     }
-    public List<String> listCollections(ConnectionProfile profile, String databaseName) {
-        List<String> collections = new ArrayList<>();
-        try (MongoClient mongoClient = createMongoClient(profile)) {
-            if (databaseName == null || databaseName.isEmpty()) {
-                return collections; // No database selected
-            }
 
-            MongoDatabase database = mongoClient.getDatabase(databaseName);
-            for (String name : database.listCollectionNames()) {
-                collections.add(name);
-            }
-
-        } catch (Exception e) {
-            e.printStackTrace(); // Or throw a custom exception
-        }
-        return collections;
-    }
-
-    public List<String> listCollectionFields(ConnectionProfile profile, String collectionName) {
-        List<String> fields = new ArrayList<>();
-        try (MongoClient mongoClient = createMongoClient(profile)) {
-            String databaseName = profile.getDatabaseName();
-            if (databaseName == null || databaseName.isEmpty()) {
-                return fields; // No database selected
-            }
-
-            MongoDatabase database = mongoClient.getDatabase(databaseName);
-            MongoCollection<Document> collection = database.getCollection(collectionName);
-
-            // Get first document to inspect fields
-            Document doc = collection.find().first();
-            if (doc != null) {
-                for (String key : doc.keySet()) {
-                    // Optionally, include type info
-                    Object value = doc.get(key);
-                    String type = value != null ? value.getClass().getSimpleName() : "null";
-                    fields.add(key + " " + type); // similar to "columnName columnType"
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace(); // or throw custom exception
-        }
-        return fields;
-    }
 
     public List<String> listColumns(ConnectionProfile profile, String table) {
         List<String> columns = new ArrayList<>();
@@ -301,13 +258,6 @@ public class ConnectionService {
         return results;
     }
 
-    public int executeUpdateQuery(ConnectionProfile profile, String sql) throws Exception {
-        Class.forName(profile.getDriverClassName());
-        try (Connection conn = DriverManager.getConnection(profile.getJdbcUrl(), profile.getUsername(), profile.getPassword());
-             Statement stmt = conn.createStatement()) {
-            return stmt.executeUpdate(sql);
-        }
-    }
 
     // ----------------- Execute Mongo Queries -----------------
     public List<List<Object>> executeMongoQuery(ConnectionProfile profile, String query) {

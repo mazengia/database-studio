@@ -42,7 +42,6 @@ public class ConnectionController {
     @PostMapping("/connect")
     public String connect(@ModelAttribute ConnectionProfile profile, Model model) {
         try {
-            // Test the connection first
             service.testConnection(profile);
 
             boolean mongo = isMongo(profile);
@@ -57,27 +56,22 @@ public class ConnectionController {
                 dbName = extractDatabaseName(profile.getJdbcUrl());
             }
 
-            // Set extracted info into profile
             profile.setServerName(serverName);
             profile.setDatabaseName(dbName);
             model.addAttribute("profile", profile);
-            // Determine whether to list databases or tables
+
             if (dbName != null && !dbName.isEmpty()) {
-                // Database selected: list tables/collections
                 model.addAttribute("tables", service.listTables(profile, dbName));
             } else {
-                // No database selected: list all databases
                 model.addAttribute("databases", service.listDatabases(profile));
             }
 
-            // If JDBC, add views and stored procedures
             if (!mongo) {
                 model.addAttribute("views", service.listViews(profile));
                 model.addAttribute("procedures", service.listStoredProcedures(profile));
             }
 
             return "columns";
-
         } catch (Exception e) {
             model.addAttribute("error", service.getFriendlyErrorMessage(e, profile));
             model.addAttribute("profile", profile);
@@ -96,7 +90,6 @@ public class ConnectionController {
         if (isMongo(profile)) {
             if (database != null && !database.isBlank()) {
                 profile.setDatabaseName(database);
-                // ✅ update Mongo URI with new database
                 String mongoUrl = profile.getMongoUri().trim();
                 mongoUrl = replaceOrAppendMongoDb(mongoUrl, database);
                 profile.setMongoUri(mongoUrl);
@@ -107,8 +100,7 @@ public class ConnectionController {
                 profile.setDatabaseName(database);
 
                 String jdbcUrl = profile.getJdbcUrl().trim();
-                jdbcUrl = updateJdbcUrl(jdbcUrl, database);   // ✅ single utility call
-
+                jdbcUrl = updateJdbcUrl(jdbcUrl, database);
                 profile.setJdbcUrl(jdbcUrl);
                 model.addAttribute("databases", service.listDatabases(profile));
             }
@@ -154,7 +146,6 @@ public class ConnectionController {
         } else if (jdbcUrl.startsWith("jdbc:derby:")) {
             return jdbcUrl.replaceAll("([^:;]+)$", database);
         } else {
-            // fallback
             if (jdbcUrl.endsWith(":") || jdbcUrl.endsWith("/")) {
                 return jdbcUrl + database;
             }
@@ -162,9 +153,6 @@ public class ConnectionController {
         }
     }
 
-    /**
-     * Replace last DB segment if present, otherwise append.
-     */
     private String replaceOrAppend(String jdbcUrl, String database) {
         if (jdbcUrl.matches(".*/[^/?]+(\\?.*)?$")) {
             return jdbcUrl.replaceAll("(/[^/?]+)(\\?.*)?$", "/" + database + "$2");
@@ -174,35 +162,32 @@ public class ConnectionController {
             return jdbcUrl + "/" + database;
         }
     }
+
     private String replaceOrAppendMongoDb(String mongoUrl, String database) {
         if (mongoUrl == null || mongoUrl.isBlank() || database == null || database.isBlank()) {
             return mongoUrl;
         }
         mongoUrl = mongoUrl.trim();
 
-        // Split off options (after '?')
         String options = "";
         int idx = mongoUrl.indexOf('?');
         if (idx != -1) {
-            options = mongoUrl.substring(idx);     // includes '?'
-            mongoUrl = mongoUrl.substring(0, idx); // strip options
+            options = mongoUrl.substring(idx);
+            mongoUrl = mongoUrl.substring(0, idx);
         }
 
         int schemeIdx = mongoUrl.indexOf("://");
         if (schemeIdx == -1) {
-            return mongoUrl; // invalid URI, return as is
+            return mongoUrl;
         }
         int slashIdx = mongoUrl.indexOf('/', schemeIdx + 3);
 
         if (slashIdx != -1) {
-            // ✅ Replace existing db
             return mongoUrl.substring(0, slashIdx + 1) + database + options;
         } else {
-            // ✅ Append new db
             return mongoUrl + "/" + database + options;
         }
     }
-
 
     public String extractMongoDatabaseName(String mongoUrl) {
         try {
@@ -273,7 +258,7 @@ public class ConnectionController {
                 model.addAttribute("message", null);
             }
         } catch (Exception e) {
-            model.addAttribute("error", "Backup failed: " + e.getMessage());
+            model.addAttribute("error", "Backup failed: " + service.getFriendlyErrorMessage(e, profile));
             model.addAttribute("message", null);
         }
         return "columns";
@@ -298,7 +283,7 @@ public class ConnectionController {
                 model.addAttribute("message", null);
             }
         } catch (Exception e) {
-            model.addAttribute("error", "Restore failed: " + e.getMessage());
+            model.addAttribute("error", "Restore failed: " + service.getFriendlyErrorMessage(e, profile));
             model.addAttribute("message", null);
         }
         return "columns";
@@ -311,21 +296,21 @@ public class ConnectionController {
             if (isMongo(profile)) {
                 try {
                     List<List<Object>> results = service.executeMongoQuery(profile, sql);
-                    model.addAttribute("results", results);
                     if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
+                    model.addAttribute("results", results);
                     return;
                 } catch (Exception e) {
-                    model.addAttribute("error", "Query Error: " + e.getMessage());
+                    model.addAttribute("error", "Query Error: " + service.getFriendlyErrorMessage(e, profile));
+                    return;
                 }
             }
 
-            // Only normalize for DBs that need it (SQL Server, Oracle)
-            sql = normalizeQueryForDb(profile.getJdbcUrl(), sql);
+            String normalizedSql = normalizeVendorSql(profile.getJdbcUrl(), sql);
 
             try (Connection conn = service.getConnection(profile);
                  Statement stmt = conn.createStatement()) {
 
-                boolean hasResultSet = stmt.execute(sql);
+                boolean hasResultSet = stmt.execute(normalizedSql);
 
                 if (hasResultSet) {
                     try (ResultSet rs = stmt.getResultSet()) {
@@ -333,12 +318,10 @@ public class ConnectionController {
                         ResultSetMetaData meta = rs.getMetaData();
                         int colCount = meta.getColumnCount();
 
-                        // Header row
                         List<Object> headers = new ArrayList<>();
                         for (int i = 1; i <= colCount; i++) headers.add(meta.getColumnLabel(i));
                         results.add(headers);
 
-                        // Data rows
                         while (rs.next()) {
                             List<Object> row = new ArrayList<>();
                             for (int i = 1; i <= colCount; i++) row.add(rs.getObject(i));
@@ -355,47 +338,39 @@ public class ConnectionController {
                 }
 
             }
-
         } catch (Exception e) {
-            model.addAttribute("error", "Query Error: " + e.getMessage());
+            model.addAttribute("error", "Query Error: " + service.getFriendlyErrorMessage(e, profile));
         }
     }
 
-    /**
-     * Normalize SQL for databases that do not support LIMIT directly.
-     */
-    private String normalizeQueryForDb(String jdbcUrl, String sql) {
+    private String normalizeVendorSql(String jdbcUrl, String sql) {
+        String normalizedSql = sql;
+
         if (jdbcUrl.startsWith("jdbc:sqlserver:") || jdbcUrl.startsWith("jdbc:oracle:")) {
             String lowerSql = sql.trim().toLowerCase();
             int limitIndex = lowerSql.lastIndexOf("limit");
 
             if (limitIndex != -1) {
-                // Extract everything after LIMIT
                 String limitPart = sql.substring(limitIndex + 5).trim();
-
-                // Try to extract a number only
                 StringBuilder num = new StringBuilder();
                 for (char c : limitPart.toCharArray()) {
                     if (Character.isDigit(c)) num.append(c);
                     else break;
                 }
-
                 if (num.length() > 0) {
                     int limitValue = Integer.parseInt(num.toString());
                     String baseQuery = sql.substring(0, limitIndex).trim();
 
                     if (jdbcUrl.startsWith("jdbc:sqlserver:")) {
-                        sql = baseQuery.replaceFirst("(?i)select", "SELECT TOP " + limitValue);
+                        normalizedSql = baseQuery.replaceFirst("(?i)select", "SELECT TOP " + limitValue);
                     } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
-                        sql = baseQuery + " FETCH FIRST " + limitValue + " ROWS ONLY";
+                        normalizedSql = baseQuery + " FETCH FIRST " + limitValue + " ROWS ONLY";
                     }
-                } // else: ignore LIMIT if no number
+                }
             }
         }
-
-        return sql;
+        return normalizedSql;
     }
-
 
     @PostMapping("/generate-excel")
     public ResponseEntity<byte[]> generateExcel(@ModelAttribute ConnectionProfile profile,
@@ -434,7 +409,6 @@ public class ConnectionController {
                     .body(out.toByteArray());
 
         } catch (Exception e) {
-            e.printStackTrace();
             return ResponseEntity.internalServerError().build();
         }
     }
