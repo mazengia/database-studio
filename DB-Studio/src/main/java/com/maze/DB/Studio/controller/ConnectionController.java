@@ -54,7 +54,6 @@ public class ConnectionController {
                 dbName = extractMongoDatabaseName(profile.getMongoUri());
             } else {
                 serverName = extractHost(profile.getJdbcUrl());
-                // For JDBC URLs, attempt to extract the database name if present
                 dbName = extractDatabaseName(profile.getJdbcUrl());
             }
 
@@ -63,13 +62,12 @@ public class ConnectionController {
             profile.setDatabaseName(dbName);
             model.addAttribute("profile", profile);
             // Determine whether to list databases or tables
-            if (dbName != null &&  !dbName.isEmpty()) {
+            if (dbName != null && !dbName.isEmpty()) {
                 // Database selected: list tables/collections
                 model.addAttribute("tables", service.listTables(profile, dbName));
             } else {
                 // No database selected: list all databases
                 model.addAttribute("databases", service.listDatabases(profile));
-                System.out.println("database="+model.getAttribute("database"));
             }
 
             // If JDBC, add views and stored procedures
@@ -95,62 +93,116 @@ public class ConnectionController {
                               Model model) {
         model.addAttribute("profile", profile);
 
-        // Handle Mongo separately
         if (isMongo(profile)) {
-            profile.setDatabaseName(database);
+            if (database != null && !database.isBlank()) {
+                profile.setDatabaseName(database);
+                // ✅ update Mongo URI with new database
+                String mongoUrl = profile.getMongoUri().trim();
+                mongoUrl = replaceOrAppendMongoDb(mongoUrl, database);
+                profile.setMongoUri(mongoUrl);
+            }
             model.addAttribute("databases", service.listDatabases(profile));
         } else {
             if (database != null && !database.isBlank()) {
                 profile.setDatabaseName(database);
-                String jdbcUrl = profile.getJdbcUrl().trim();
 
-                // Update JDBC URL dynamically based on database
-                if (jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:")) {
-                    jdbcUrl = jdbcUrl.replaceAll("/[^/?]+", "/" + database);
-                } else if (jdbcUrl.startsWith("jdbc:postgresql:")) {
-                    jdbcUrl = jdbcUrl.replaceAll("/[^/?]+", "/" + database);
-                } else if (jdbcUrl.startsWith("jdbc:h2:")) {
-                    jdbcUrl = jdbcUrl.replaceAll("([^:/]+)$", database);
-                } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
-                    jdbcUrl = jdbcUrl.replaceAll(":([^:]+)$", ":" + database);
-                } else if (jdbcUrl.startsWith("jdbc:sqlserver:") || jdbcUrl.startsWith("jdbc:jtds:sqlserver:")) {
-                    if (jdbcUrl.toLowerCase().contains("databasename=")) {
-                        jdbcUrl = jdbcUrl.replaceAll("(?i)databaseName=[^;]+", "databaseName=" + database);
-                    } else {
-                        jdbcUrl += ";databaseName=" + database;
-                    }
-                } else if (jdbcUrl.startsWith("jdbc:db2:")) {
-                    jdbcUrl = jdbcUrl.replaceAll("/[^:]+", "/" + database);
-                } else if (jdbcUrl.startsWith("jdbc:sybase:") || jdbcUrl.startsWith("jdbc:sap:")) {
-                    jdbcUrl = jdbcUrl.replaceAll("/[^/?]+", "/" + database);
-                } else if (jdbcUrl.startsWith("jdbc:derby:")) {
-                    jdbcUrl = jdbcUrl.replaceAll("([^:;]+)$", database);
-                }
-                // SQLite: skip
+                String jdbcUrl = profile.getJdbcUrl().trim();
+                jdbcUrl = updateJdbcUrl(jdbcUrl, database);   // ✅ single utility call
 
                 profile.setJdbcUrl(jdbcUrl);
                 model.addAttribute("databases", service.listDatabases(profile));
             }
         }
 
-        // List tables
         if (database != null && !database.isBlank()) {
             model.addAttribute("tables", service.listTables(profile, database));
         }
 
-        // List columns
         if (table != null && !table.isBlank()) {
             model.addAttribute("table", table);
             model.addAttribute("tableColumns", service.listColumns(profile, table));
         }
 
-        // Run any SQL query
         if (sql != null && !sql.trim().isEmpty()) {
             runQueryInternal(profile, sql, model);
         }
 
         return "columns";
     }
+
+    private String updateJdbcUrl(String jdbcUrl, String database) {
+        jdbcUrl = jdbcUrl.trim();
+
+        if (jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:")) {
+            return replaceOrAppend(jdbcUrl, database);
+        } else if (jdbcUrl.startsWith("jdbc:postgresql:")) {
+            return replaceOrAppend(jdbcUrl, database);
+        } else if (jdbcUrl.startsWith("jdbc:h2:")) {
+            return jdbcUrl.replaceAll("([^:/]+)$", database);
+        } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
+            return jdbcUrl.replaceAll(":([^:]+)$", ":" + database);
+        } else if (jdbcUrl.startsWith("jdbc:sqlserver:") || jdbcUrl.startsWith("jdbc:jtds:sqlserver:")) {
+            if (jdbcUrl.toLowerCase().contains("databasename=")) {
+                return jdbcUrl.replaceAll("(?i)databaseName=[^;]+", "databaseName=" + database);
+            } else {
+                return jdbcUrl + ";databaseName=" + database;
+            }
+        } else if (jdbcUrl.startsWith("jdbc:db2:")) {
+            return replaceOrAppend(jdbcUrl, database);
+        } else if (jdbcUrl.startsWith("jdbc:sybase:") || jdbcUrl.startsWith("jdbc:sap:")) {
+            return replaceOrAppend(jdbcUrl, database);
+        } else if (jdbcUrl.startsWith("jdbc:derby:")) {
+            return jdbcUrl.replaceAll("([^:;]+)$", database);
+        } else {
+            // fallback
+            if (jdbcUrl.endsWith(":") || jdbcUrl.endsWith("/")) {
+                return jdbcUrl + database;
+            }
+            return jdbcUrl + "/" + database;
+        }
+    }
+
+    /**
+     * Replace last DB segment if present, otherwise append.
+     */
+    private String replaceOrAppend(String jdbcUrl, String database) {
+        if (jdbcUrl.matches(".*/[^/?]+(\\?.*)?$")) {
+            return jdbcUrl.replaceAll("(/[^/?]+)(\\?.*)?$", "/" + database + "$2");
+        } else if (jdbcUrl.endsWith(":") || jdbcUrl.endsWith("/")) {
+            return jdbcUrl + database;
+        } else {
+            return jdbcUrl + "/" + database;
+        }
+    }
+    private String replaceOrAppendMongoDb(String mongoUrl, String database) {
+        if (mongoUrl == null || mongoUrl.isBlank() || database == null || database.isBlank()) {
+            return mongoUrl;
+        }
+        mongoUrl = mongoUrl.trim();
+
+        // Split off options (after '?')
+        String options = "";
+        int idx = mongoUrl.indexOf('?');
+        if (idx != -1) {
+            options = mongoUrl.substring(idx);     // includes '?'
+            mongoUrl = mongoUrl.substring(0, idx); // strip options
+        }
+
+        int schemeIdx = mongoUrl.indexOf("://");
+        if (schemeIdx == -1) {
+            return mongoUrl; // invalid URI, return as is
+        }
+        int slashIdx = mongoUrl.indexOf('/', schemeIdx + 3);
+
+        if (slashIdx != -1) {
+            // ✅ Replace existing db
+            return mongoUrl.substring(0, slashIdx + 1) + database + options;
+        } else {
+            // ✅ Append new db
+            return mongoUrl + "/" + database + options;
+        }
+    }
+
 
     public String extractMongoDatabaseName(String mongoUrl) {
         try {
@@ -257,10 +309,14 @@ public class ConnectionController {
 
         try {
             if (isMongo(profile)) {
-                List<List<Object>> results = service.executeMongoQuery(profile, sql);
-                model.addAttribute("results", results);
-                if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
-                return;
+                try {
+                    List<List<Object>> results = service.executeMongoQuery(profile, sql);
+                    model.addAttribute("results", results);
+                    if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
+                    return;
+                } catch (Exception e) {
+                    model.addAttribute("error", "Query Error: " + e.getMessage());
+                }
             }
 
             // Only normalize for DBs that need it (SQL Server, Oracle)
