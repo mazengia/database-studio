@@ -376,40 +376,109 @@ public class ConnectionController {
     public ResponseEntity<byte[]> generateExcel(@ModelAttribute ConnectionProfile profile,
                                                 @RequestParam String sql) {
         try {
-            List<List<Object>> results = isMongo(profile) ? service.executeMongoQuery(profile, sql)
-                    : sql.trim().toLowerCase().startsWith("select") ? service.executeSelectQuery(profile, sql)
-                    : null;
+            List<List<Object>> results;
 
-            if (results == null || results.isEmpty()) return ResponseEntity.noContent().build();
+            // Handle MongoDB
+            if (isMongo(profile)) {
+                results = service.executeMongoQuery(profile, sql);
+            } else {
+                String normalizedSql = normalizeVendorSql(profile.getJdbcUrl(), sql);
 
-            Workbook workbook = new XSSFWorkbook();
-            Sheet sheet = workbook.createSheet("Query Results");
+                try (Connection conn = service.getConnection(profile);
+                     Statement stmt = conn.createStatement()) {
 
-            Row header = sheet.createRow(0);
-            List<Object> columns = results.get(0);
-            for (int i = 0; i < columns.size(); i++) {
-                header.createCell(i).setCellValue(columns.get(i).toString());
-            }
+                    boolean hasResultSet = stmt.execute(normalizedSql);
 
-            for (int i = 1; i < results.size(); i++) {
-                Row row = sheet.createRow(i);
-                List<Object> rowData = results.get(i);
-                for (int j = 0; j < rowData.size(); j++) {
-                    row.createCell(j).setCellValue(rowData.get(j) != null ? rowData.get(j).toString() : "");
+                    if (!hasResultSet) {
+                        // ❌ Non-SELECT queries (INSERT/UPDATE/DELETE)
+                        int updateCount = stmt.getUpdateCount();
+                        return ResponseEntity.ok()
+                                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=query-results.xlsx")
+                                .contentType(MediaType.parseMediaType(
+                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                                .body(makeMessageWorkbook("Query executed, " + updateCount + " row(s) affected."));
+                    }
+
+                    // ✅ SELECT queries → build results
+                    try (ResultSet rs = stmt.getResultSet()) {
+                        results = new ArrayList<>();
+                        ResultSetMetaData meta = rs.getMetaData();
+                        int colCount = meta.getColumnCount();
+
+                        // header row
+                        List<Object> headers = new ArrayList<>();
+                        for (int i = 1; i <= colCount; i++) {
+                            headers.add(meta.getColumnLabel(i));
+                        }
+                        results.add(headers);
+
+                        // data rows
+                        while (rs.next()) {
+                            List<Object> row = new ArrayList<>();
+                            for (int i = 1; i <= colCount; i++) {
+                                row.add(rs.getObject(i));
+                            }
+                            results.add(row);
+                        }
+                    }
                 }
             }
 
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            workbook.write(out);
-            workbook.close();
+            if (results == null || results.isEmpty()) {
+                return ResponseEntity.noContent().build();
+            }
+
+            // ✅ Generate Excel from results
+            byte[] excelBytes = makeExcel(results);
 
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=query-results.xlsx")
-                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .body(out.toByteArray());
+                    .contentType(MediaType.parseMediaType(
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                    .body(excelBytes);
 
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
+            e.printStackTrace();
+            return ResponseEntity.internalServerError()
+                    .body(("Failed to generate Excel: " + e.getMessage()).getBytes());
         }
     }
+    private byte[] makeExcel(List<List<Object>> results) throws Exception {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Query Results");
+
+        for (int i = 0; i < results.size(); i++) {
+            Row row = sheet.createRow(i);
+            List<Object> rowData = results.get(i);
+            for (int j = 0; j < rowData.size(); j++) {
+                row.createCell(j).setCellValue(
+                        rowData.get(j) != null ? rowData.get(j).toString() : ""
+                );
+            }
+        }
+
+        // auto-size columns
+        if (!results.isEmpty()) {
+            for (int i = 0; i < results.get(0).size(); i++) {
+                sheet.autoSizeColumn(i);
+            }
+        }
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        workbook.write(out);
+        workbook.close();
+        return out.toByteArray();
+    }
+    private byte[] makeMessageWorkbook(String message) throws Exception {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Message");
+        Row row = sheet.createRow(0);
+        row.createCell(0).setCellValue(message);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        workbook.write(out);
+        workbook.close();
+        return out.toByteArray();
+    }
+
 }
