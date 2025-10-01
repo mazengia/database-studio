@@ -6,7 +6,10 @@ import com.mongodb.ConnectionString;
 import com.mongodb.MongoSecurityException;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.client.*;
+import com.opencsv.CSVReader;
+import com.opencsv.CSVReaderBuilder;
 import lombok.RequiredArgsConstructor;
+import org.apache.poi.ss.usermodel.*;
 import org.springframework.beans.factory.annotation.Value;
 
 import org.bson.Document;
@@ -14,15 +17,21 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.maze.DB.Studio.util.JdbcUrlParser.extractDatabaseName;
 
 @Service
 @RequiredArgsConstructor
 public class ConnectionService {
+    private static final int BATCH_SIZE = 500; // Configurable for relational DBs or MongoDB
     @Value("${db.backup.folder}")
     private String backupFolder;
     // ----------------- Test Connection -----------------
@@ -630,5 +639,200 @@ public class ConnectionService {
 
         // Normal case: username + password
         return DriverManager.getConnection(jdbcUrl, username, password);
+    }
+    // ... imports and class definition unchanged ...
+    public void importExcelToTable(ConnectionProfile profile, String table, InputStream inputStream) throws Exception {
+        try (Workbook workbook = WorkbookFactory.create(inputStream)) { // Auto-detect XLS/XLSX
+            Sheet sheet = workbook.getSheetAt(0);
+            Iterator<Row> rowIterator = sheet.iterator();
+
+            if (!rowIterator.hasNext()) throw new IllegalArgumentException("Excel sheet is empty");
+
+            // Read header row
+            Row headerRow = rowIterator.next();
+            List<String> columns = new ArrayList<>();
+            for (Cell cell : headerRow) columns.add(cell.getStringCellValue().trim());
+
+            // Read data rows
+            List<List<Object>> batchRows = new ArrayList<>();
+            while (rowIterator.hasNext()) {
+                Row row = rowIterator.next();
+                List<Object> rowData = new ArrayList<>();
+                for (int i = 0; i < columns.size(); i++) {
+                    Cell cell = row.getCell(i, Row.MissingCellPolicy.CREATE_NULL_AS_BLANK);
+                    rowData.add(getCellValue(cell));
+                }
+                batchRows.add(rowData);
+
+                if (batchRows.size() >= BATCH_SIZE) {
+                    bulkInsert(profile, table, columns, batchRows);
+                    batchRows.clear();
+                }
+            }
+            if (!batchRows.isEmpty()) bulkInsert(profile, table, columns, batchRows);
+        }
+    }
+
+    public void importCsvToTable(ConnectionProfile profile, String table, InputStream inputStream) throws Exception {
+        try (CSVReader reader = new CSVReaderBuilder(new InputStreamReader(inputStream, StandardCharsets.UTF_8)).build()) {
+            List<String> columns = new ArrayList<>();
+            List<List<Object>> batchRows = new ArrayList<>();
+            String[] line;
+            boolean headerRead = false;
+
+            while ((line = reader.readNext()) != null) {
+                if (!headerRead) {
+                    columns.addAll(Arrays.asList(line));
+                    headerRead = true;
+                } else {
+                    List<Object> rowData = Arrays.stream(line)
+                            .map(String::trim)
+                            .map(this::parseValue)
+                            .collect(Collectors.toList());
+                    batchRows.add(rowData);
+
+                    if (batchRows.size() >= BATCH_SIZE) {
+                        bulkInsert(profile, table, columns, batchRows);
+                        batchRows.clear();
+                    }
+                }
+            }
+            if (!batchRows.isEmpty()) bulkInsert(profile, table, columns, batchRows);
+        }
+    }
+
+    private Object getCellValue(Cell cell) {
+        if (cell == null) return null;
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue().trim();
+            case BOOLEAN:
+                return cell.getBooleanCellValue();
+            case NUMERIC:
+                if (DateUtil.isCellDateFormatted(cell)) {
+                    // Return java.sql.Timestamp directly
+                    return new Timestamp(cell.getDateCellValue().getTime());
+                }
+                return cell.getNumericCellValue();
+            case FORMULA:
+                return cell.getCellFormula();
+            case BLANK:
+            default:
+                return null;
+        }
+    }
+
+
+    private Object parseValue(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return Integer.parseInt(value); } catch (NumberFormatException ignored) {}
+        try { return Double.parseDouble(value); } catch (NumberFormatException ignored) {}
+        if (value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false")) return Boolean.parseBoolean(value);
+        return value;
+    }
+
+    private void bulkInsert(ConnectionProfile profile, String table, List<String> columns, List<List<Object>> rows) throws Exception {
+        if (rows.isEmpty()) return;
+
+        if (isMongo(profile)) {
+            insertMongo(profile, table, columns, rows);
+        } else {
+            insertRelational(profile, table, columns, rows);
+        }
+    }
+
+    private void insertMongo(ConnectionProfile profile, String table, List<String> columns, List<List<Object>> rows) {
+        try (MongoClient client = createMongoClient(profile)) {
+            MongoCollection<Document> collection = client.getDatabase(profile.getDatabaseName()).getCollection(table);
+            List<Document> docs = new ArrayList<>();
+            for (List<Object> row : rows) {
+                Document doc = new Document();
+                for (int i = 0; i < columns.size(); i++) doc.put(columns.get(i), i < row.size() ? row.get(i) : null);
+                docs.add(doc);
+            }
+            if (!docs.isEmpty()) collection.insertMany(docs);
+        }
+    }
+
+    private void insertRelational(ConnectionProfile profile, String table, List<String> columns, List<List<Object>> rows) throws SQLException {
+        try (Connection conn = getConnection(profile)) {
+            String dbProduct = conn.getMetaData().getDatabaseProductName().toLowerCase();
+            String colList = columns.stream()
+                    .map(c -> quoteColumn(c, dbProduct))
+                    .collect(Collectors.joining(","));
+            String qMarks = String.join(",", Collections.nCopies(columns.size(), "?"));
+            String sql = "INSERT INTO " + table + " (" + colList + ") VALUES (" + qMarks + ")";
+
+            Map<String, Integer> columnTypes = getColumnTypes(conn, table);
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
+                    List<Object> row = rows.get(rowIndex);
+                    for (int i = 0; i < columns.size(); i++) {
+                        Object val = i < row.size() ? row.get(i) : null;
+                        String colName = columns.get(i);
+                        Integer sqlType = columnTypes.get(colName.toLowerCase());
+
+                        try {
+                            if (val != null && (sqlType == Types.TIMESTAMP || sqlType == Types.TIMESTAMP_WITH_TIMEZONE)) {
+                                if (!(val instanceof Timestamp)) {
+                                    val = parseTimestamp(val.toString());
+                                }
+                                ps.setTimestamp(i + 1, (Timestamp) val);
+                            } else {
+                                ps.setObject(i + 1, val);
+                            }
+                        } catch (Exception e) {
+                            throw new SQLException("Error at row " + (rowIndex + 2) + ", column '" + colName + "' with value '" + val + "': " + e.getMessage(), e);
+                        }
+                    }
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+            }
+        }
+    }
+
+
+    private Timestamp parseTimestamp(Object value) {
+        if (value == null) return null;
+
+        String str = value.toString().trim();
+        if (str.isEmpty() || str.equalsIgnoreCase("NULL")) return null; // <-- handle NULL
+
+        try {
+            // Handles milliseconds
+            LocalDateTime ldt = LocalDateTime.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+            return Timestamp.valueOf(ldt);
+        } catch (Exception e1) {
+            try {
+                // Fallback: seconds only
+                LocalDateTime ldt = LocalDateTime.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                return Timestamp.valueOf(ldt);
+            } catch (Exception e2) {
+                throw new IllegalArgumentException("Invalid timestamp: " + value, e2);
+            }
+        }
+    }
+
+    // Utility to fetch column types from DB
+    private Map<String, Integer> getColumnTypes(Connection conn, String table) throws SQLException {
+        Map<String, Integer> map = new HashMap<>();
+        DatabaseMetaData meta = conn.getMetaData();
+        try (ResultSet rs = meta.getColumns(null, null, table, null)) {
+            while (rs.next()) {
+                String colName = rs.getString("COLUMN_NAME").toLowerCase();
+                int sqlType = rs.getInt("DATA_TYPE"); // java.sql.Types
+                map.put(colName, sqlType);
+            }
+        }
+        return map;
+    }
+
+    private String quoteColumn(String column, String dbProduct) {
+        if (dbProduct.contains("sql server")) return "[" + column + "]";
+        if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) return "`" + column + "`";
+        if (dbProduct.contains("postgresql")) return "\"" + column + "\"";
+        return column;
     }
 }

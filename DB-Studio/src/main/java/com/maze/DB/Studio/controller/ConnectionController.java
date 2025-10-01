@@ -12,12 +12,10 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.io.ByteArrayOutputStream;
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -373,8 +371,7 @@ public class ConnectionController {
     }
 
     @PostMapping("/generate-excel")
-    public ResponseEntity<byte[]> generateExcel(@ModelAttribute ConnectionProfile profile,
-                                                @RequestParam String sql) {
+    public ResponseEntity<byte[]> generateExcel(@ModelAttribute ConnectionProfile profile, @RequestParam String sql) {
         try {
             List<List<Object>> results;
 
@@ -443,6 +440,7 @@ public class ConnectionController {
                     .body(("Failed to generate Excel: " + e.getMessage()).getBytes());
         }
     }
+
     private byte[] makeExcel(List<List<Object>> results) throws Exception {
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("Query Results");
@@ -469,6 +467,7 @@ public class ConnectionController {
         workbook.close();
         return out.toByteArray();
     }
+
     private byte[] makeMessageWorkbook(String message) throws Exception {
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("Message");
@@ -479,6 +478,51 @@ public class ConnectionController {
         workbook.write(out);
         workbook.close();
         return out.toByteArray();
+    }
+
+    @PostMapping("/import")
+    public String importData(@ModelAttribute ConnectionProfile profile,
+                             @RequestParam String table,
+                             @RequestParam("file") MultipartFile file,
+                             RedirectAttributes redirectAttributes,
+                             Model model) {
+
+        profile.setServerName(extractHost(profile.getJdbcUrl()));
+        profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
+        model.addAttribute("profile", profile);
+        model.addAttribute("table", table);
+        model.addAttribute("tables", service.listTablesOrDatabases(profile));
+        model.addAttribute("databases", service.listDatabases(profile));
+
+        String filename = file.getOriginalFilename();
+        if (filename == null || filename.isBlank()) {
+            model.addAttribute("error", "No file selected.");
+            return "columns";
+        }
+
+        try {
+            if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) {
+                service.importExcelToTable(profile, table, file.getInputStream());
+            } else if (filename.endsWith(".csv")) {
+                service.importCsvToTable(profile, table, file.getInputStream());
+            } else {
+                model.addAttribute("error", "Unsupported file type: only .xlsx, .xls, or .csv allowed.");
+                return "columns";
+            }
+            model.addAttribute("message", "Import successful!");
+        } catch (SQLException e) {
+            model.addAttribute("error", "Import failed: " + e.getMessage());
+            e.printStackTrace();
+        } catch (Exception e) {
+            model.addAttribute("error", "Import failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+
+        if (table != null && !table.isBlank()) {
+            model.addAttribute("tableColumns", service.listColumns(profile, table));
+        }
+        return "columns";
     }
 
 }
