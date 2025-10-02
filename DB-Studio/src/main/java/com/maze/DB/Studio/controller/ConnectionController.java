@@ -82,42 +82,123 @@ public class ConnectionController {
                               @RequestParam(required = false) String table,
                               @RequestParam(required = false) String database,
                               @RequestParam(required = false) String sql,
+                              @RequestParam(required = false, defaultValue = "1") int page,
+                              @RequestParam(required = false, defaultValue = "10") int size,
                               Model model) {
-        model.addAttribute("profile", profile);
+        try {
+            model.addAttribute("profile", profile);
+            model.addAttribute("currentPage", page);
+            model.addAttribute("pageSize", size);
 
-        if (isMongo(profile)) {
-            if (database != null && !database.isBlank()) {
-                profile.setDatabaseName(database);
-                String mongoUrl = profile.getMongoUri().trim();
-                mongoUrl = replaceOrAppendMongoDb(mongoUrl, database);
-                profile.setMongoUri(mongoUrl);
-            }
-            model.addAttribute("databases", service.listDatabases(profile));
-        } else {
-            if (database != null && !database.isBlank()) {
-                profile.setDatabaseName(database);
-
-                String jdbcUrl = profile.getJdbcUrl().trim();
-                jdbcUrl = updateJdbcUrl(jdbcUrl, database);
-                profile.setJdbcUrl(jdbcUrl);
+            if (isMongo(profile)) {
+                if (database != null && !database.isBlank()) {
+                    profile.setDatabaseName(database);
+                    String mongoUrl = profile.getMongoUri().trim();
+                    mongoUrl = replaceOrAppendMongoDb(mongoUrl, database);
+                    profile.setMongoUri(mongoUrl);
+                }
+                model.addAttribute("databases", service.listDatabases(profile));
+            } else {
+                if (database != null && !database.isBlank()) {
+                    profile.setDatabaseName(database);
+                    String jdbcUrl = profile.getJdbcUrl().trim();
+                    jdbcUrl = updateJdbcUrl(jdbcUrl, database);
+                    profile.setJdbcUrl(jdbcUrl);
+                }
                 model.addAttribute("databases", service.listDatabases(profile));
             }
-        }
 
-        if (database != null && !database.isBlank()) {
-            model.addAttribute("tables", service.listTables(profile, database));
-        }
+            if (database != null && !database.isBlank()) {
+                model.addAttribute("tables", service.listTables(profile, database));
+            }
 
-        if (table != null && !table.isBlank()) {
-            model.addAttribute("table", table);
-            model.addAttribute("tableColumns", service.listColumns(profile, table));
-        }
+            if (table != null && !table.isBlank()) {
+                model.addAttribute("table", table);
+                model.addAttribute("tableColumns", service.listColumns(profile, table));
+            }
 
-        if (sql != null && !sql.trim().isEmpty()) {
-            runQueryInternal(profile, sql, model);
-        }
+            if (sql != null && !sql.trim().isEmpty()) {
+                runQueryInternalPaginated(profile, sql, page, size, model);
+            }
 
+        } catch (Exception e) {
+            // ✅ Show error on the page instead of crashing
+            model.addAttribute("error", e.getMessage());
+            return "columns"; // still return the page with error shown
+        }
         return "columns";
+    }
+
+
+    private void runQueryInternalPaginated(ConnectionProfile profile, String sql, int page, int size, Model model) {
+        model.addAttribute("sql", sql);
+        model.addAttribute("currentPage", page);
+        model.addAttribute("pageSize", size);
+
+        try {
+            List<List<Object>> results;
+            boolean isLastPage;
+            int fetchSize = size + 1; // Fetch one more row than needed to detect last page
+
+            if (isMongo(profile)) {
+                results = service.executeMongoQueryPaginated(profile, sql, page, fetchSize);
+                isLastPage = results.size() <= size;
+                if (results.size() > size) {
+                    results = results.subList(0, size);
+                }
+                // Header row for Mongo: try to infer from first row if present
+                if (!results.isEmpty()) {
+                    model.addAttribute("resultColumns", results.get(0));
+                }
+                model.addAttribute("results", results);
+                model.addAttribute("isLastPage", isLastPage);
+                return;
+            }
+
+            String paginatedSql = ConnectionService.addPagination(profile.getJdbcUrl(), sql, page, fetchSize);
+
+            try (Connection conn = service.getConnection(profile);
+                 Statement stmt = conn.createStatement()) {
+                boolean hasResultSet = stmt.execute(paginatedSql);
+                if (hasResultSet) {
+                    try (ResultSet rs = stmt.getResultSet()) {
+                        List<List<Object>> r = new ArrayList<>();
+                        ResultSetMetaData meta = rs.getMetaData();
+                        int colCount = meta.getColumnCount();
+
+                        List<Object> headers = new ArrayList<>();
+                        for (int i = 1; i <= colCount; i++) headers.add(meta.getColumnLabel(i));
+                        r.add(headers);
+
+                        int rowCount = 0;
+                        List<List<Object>> dataRows = new ArrayList<>();
+                        while (rs.next() && rowCount < fetchSize) {
+                            List<Object> row = new ArrayList<>();
+                            for (int i = 1; i <= colCount; i++) row.add(rs.getObject(i));
+                            dataRows.add(row);
+                            rowCount++;
+                        }
+                        isLastPage = dataRows.size() <= size;
+                        if (dataRows.size() > size) {
+                            dataRows = dataRows.subList(0, size);
+                        }
+                        r.addAll(dataRows);
+                        model.addAttribute("results", r);
+                        model.addAttribute("resultColumns", headers);
+                        model.addAttribute("isLastPage", isLastPage);
+                        model.addAttribute("message", "Query executed successfully.");
+                    }
+                } else {
+                    int updateCount = stmt.getUpdateCount();
+                    model.addAttribute("message", "Query executed, " + updateCount + " row(s) affected.");
+                    model.addAttribute("isLastPage", true);
+                }
+
+            }
+        } catch (Exception e) {
+            model.addAttribute("error", "Query Error: " + service.getFriendlyErrorMessage(e, profile));
+            model.addAttribute("isLastPage", true);
+        }
     }
 
     private String updateJdbcUrl(String jdbcUrl, String database) {
@@ -239,25 +320,31 @@ public class ConnectionController {
 
     @PostMapping("/backup")
     public String backupDatabase(@ModelAttribute ConnectionProfile profile, Model model) {
-        profile.setServerName(extractHost(profile.getJdbcUrl()));
-        profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        model.addAttribute("databases", service.listDatabases(profile));
-
-        boolean success;
         try {
-            success = isMongo(profile) ? service.backupMongo(profile) : service.backupJdbc(profile);
-            if (success) {
-                model.addAttribute("message", "Backup successful");
-                model.addAttribute("error", null);
-            } else {
-                model.addAttribute("error", "Backup failed");
+            profile.setServerName(extractHost(profile.getJdbcUrl()));
+            profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
+            model.addAttribute("profile", profile);
+            model.addAttribute("tables", service.listTablesOrDatabases(profile));
+            model.addAttribute("databases", service.listDatabases(profile));
+
+            boolean success;
+            try {
+                success = isMongo(profile) ? service.backupMongo(profile) : service.backupJdbc(profile);
+                if (success) {
+                    model.addAttribute("message", "Backup successful");
+                    model.addAttribute("error", null);
+                } else {
+                    model.addAttribute("error", "Backup failed");
+                    model.addAttribute("message", null);
+                }
+            } catch (Exception e) {
+                model.addAttribute("error", "Backup failed: " + service.getFriendlyErrorMessage(e, profile));
                 model.addAttribute("message", null);
             }
         } catch (Exception e) {
-            model.addAttribute("error", "Backup failed: " + service.getFriendlyErrorMessage(e, profile));
-            model.addAttribute("message", null);
+            // ✅ Show error on the page instead of crashing
+            model.addAttribute("error", e.getMessage());
+            return "columns"; // still return the page with error shown
         }
         return "columns";
     }
@@ -266,23 +353,29 @@ public class ConnectionController {
     public String restoreDatabase(@ModelAttribute ConnectionProfile profile,
                                   @RequestParam("file") MultipartFile file,
                                   Model model) {
-        model.addAttribute("profile", profile);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        model.addAttribute("databases", service.listDatabases(profile));
-
-        boolean success;
         try {
-            success = isMongo(profile) ? service.restoreMongo(profile, file) : service.restoreJdbc(profile, file);
-            if (success) {
-                model.addAttribute("message", "Restore successful");
-                model.addAttribute("error", null);
-            } else {
-                model.addAttribute("error", "Restore failed");
+            model.addAttribute("profile", profile);
+            model.addAttribute("tables", service.listTablesOrDatabases(profile));
+            model.addAttribute("databases", service.listDatabases(profile));
+
+            boolean success;
+            try {
+                success = isMongo(profile) ? service.restoreMongo(profile, file) : service.restoreJdbc(profile, file);
+                if (success) {
+                    model.addAttribute("message", "Restore successful");
+                    model.addAttribute("error", null);
+                } else {
+                    model.addAttribute("error", "Restore failed");
+                    model.addAttribute("message", null);
+                }
+            } catch (Exception e) {
+                model.addAttribute("error", "Restore failed: " + service.getFriendlyErrorMessage(e, profile));
                 model.addAttribute("message", null);
             }
         } catch (Exception e) {
-            model.addAttribute("error", "Restore failed: " + service.getFriendlyErrorMessage(e, profile));
-            model.addAttribute("message", null);
+            // ✅ Show error on the page instead of crashing
+            model.addAttribute("error", e.getMessage());
+            return "columns"; // still return the page with error shown
         }
         return "columns";
     }
@@ -486,41 +579,46 @@ public class ConnectionController {
                              @RequestParam("file") MultipartFile file,
                              RedirectAttributes redirectAttributes,
                              Model model) {
-
-        profile.setServerName(extractHost(profile.getJdbcUrl()));
-        profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
-        model.addAttribute("profile", profile);
-        model.addAttribute("table", table);
-        model.addAttribute("tables", service.listTablesOrDatabases(profile));
-        model.addAttribute("databases", service.listDatabases(profile));
-
-        String filename = file.getOriginalFilename();
-        if (filename == null || filename.isBlank()) {
-            model.addAttribute("error", "No file selected.");
-            return "columns";
-        }
-
         try {
-            if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) {
-                service.importExcelToTable(profile, table, file.getInputStream());
-            } else if (filename.endsWith(".csv")) {
-                service.importCsvToTable(profile, table, file.getInputStream());
-            } else {
-                model.addAttribute("error", "Unsupported file type: only .xlsx, .xls, or .csv allowed.");
+            profile.setServerName(extractHost(profile.getJdbcUrl()));
+            profile.setDatabaseName(extractDatabaseName(profile.getJdbcUrl()));
+            model.addAttribute("profile", profile);
+            model.addAttribute("table", table);
+            model.addAttribute("tables", service.listTablesOrDatabases(profile));
+            model.addAttribute("databases", service.listDatabases(profile));
+
+            String filename = file.getOriginalFilename();
+            if (filename == null || filename.isBlank()) {
+                model.addAttribute("error", "No file selected.");
                 return "columns";
             }
-            model.addAttribute("message", "Import successful!");
-        } catch (SQLException e) {
-            model.addAttribute("error", "Import failed: " + e.getMessage());
-            e.printStackTrace();
+
+            try {
+                if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) {
+                    service.importExcelToTable(profile, table, file.getInputStream());
+                } else if (filename.endsWith(".csv")) {
+                    service.importCsvToTable(profile, table, file.getInputStream());
+                } else {
+                    model.addAttribute("error", "Unsupported file type: only .xlsx, .xls, or .csv allowed.");
+                    return "columns";
+                }
+                model.addAttribute("message", "Import successful!");
+            } catch (SQLException e) {
+                model.addAttribute("error", "Import failed: " + e.getMessage());
+                e.printStackTrace();
+            } catch (Exception e) {
+                model.addAttribute("error", "Import failed: " + e.getMessage());
+                e.printStackTrace();
+            }
+
+
+            if (table != null && !table.isBlank()) {
+                model.addAttribute("tableColumns", service.listColumns(profile, table));
+            }
         } catch (Exception e) {
-            model.addAttribute("error", "Import failed: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-
-        if (table != null && !table.isBlank()) {
-            model.addAttribute("tableColumns", service.listColumns(profile, table));
+            // ✅ Show error on the page instead of crashing
+            model.addAttribute("error", e.getMessage());
+            return "columns"; // still return the page with error shown
         }
         return "columns";
     }

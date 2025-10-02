@@ -117,67 +117,62 @@ public class ConnectionService {
         return result;
     }
 
-    public List<String> listDatabases(ConnectionProfile profile) {
+    public List<String> listDatabases(ConnectionProfile profile) throws Exception {
         List<String> result = new ArrayList<>();
-        try {
-            if (isMongo(profile)) {
-                try (MongoClient client = createMongoClient(profile)) {
-                    client.listDatabaseNames().forEach(result::add);
-                }
-                return result;
+        if (isMongo(profile)) {
+            try (MongoClient client = createMongoClient(profile)) {
+                client.listDatabaseNames().forEach(result::add);
             }
-
-            Class.forName(profile.getDriverClassName());
-            try (Connection conn = DriverManager.getConnection(
-                    profile.getJdbcUrl(), profile.getUsername(), profile.getPassword())) {
-
-                DatabaseMetaData meta = conn.getMetaData();
-                String dbProduct = meta.getDatabaseProductName().toLowerCase();
-
-                if (dbProduct.contains("sql server")) {
-                    try (ResultSet rs = conn.createStatement()
-                            .executeQuery("SELECT name FROM sys.databases")) {
-                        while (rs.next()) result.add(rs.getString("name"));
-                    }
-                } else if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) {
-                    try (ResultSet rs = conn.createStatement().executeQuery("SHOW DATABASES")) {
-                        while (rs.next()) result.add(rs.getString(1));
-                    }
-                } else if (dbProduct.contains("postgresql")) {
-                    try (ResultSet rs = conn.createStatement()
-                            .executeQuery("SELECT datname FROM pg_database WHERE datistemplate = false")) {
-                        while (rs.next()) result.add(rs.getString(1));
-                    }
-                } else if (dbProduct.contains("h2") || dbProduct.contains("sqlite") || dbProduct.contains("derby")) {
-                    result.add(extractDatabaseName(profile.getJdbcUrl()));
-                } else if (dbProduct.contains("oracle")) {
-                    try (ResultSet rs = conn.createStatement()
-                            .executeQuery("SELECT username FROM all_users ORDER BY username")) {
-                        while (rs.next()) result.add(rs.getString("username"));
-                    }
-                } else if (dbProduct.contains("db2")) {
-                    try (ResultSet rs = conn.createStatement()
-                            .executeQuery("SELECT name FROM syscat.databases")) {
-                        while (rs.next()) result.add(rs.getString("name"));
-                    }
-                } else if (dbProduct.contains("sybase") || dbProduct.contains("sap")) {
-                    try (ResultSet rs = meta.getCatalogs()) {
-                        while (rs.next()) result.add(rs.getString("TABLE_CAT"));
-                    }
-                } else {
-                    try (ResultSet rs = meta.getCatalogs()) {
-                        while (rs.next()) result.add(rs.getString("TABLE_CAT"));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
+            return result;
         }
+
+        Class.forName(profile.getDriverClassName());
+        try (Connection conn = DriverManager.getConnection(
+                profile.getJdbcUrl(), profile.getUsername(), profile.getPassword())) {
+
+            DatabaseMetaData meta = conn.getMetaData();
+            String dbProduct = meta.getDatabaseProductName().toLowerCase();
+
+            if (dbProduct.contains("sql server")) {
+                try (ResultSet rs = conn.createStatement().executeQuery("SELECT name FROM sys.databases")) {
+                    while (rs.next()) result.add(rs.getString("name"));
+                }
+            } else if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) {
+                try (ResultSet rs = conn.createStatement().executeQuery("SHOW DATABASES")) {
+                    while (rs.next()) result.add(rs.getString(1));
+                }
+            } else if (dbProduct.contains("postgresql")) {
+                try (ResultSet rs = conn.createStatement()
+                        .executeQuery("SELECT datname FROM pg_database WHERE datistemplate = false")) {
+                    while (rs.next()) result.add(rs.getString(1));
+                }
+            } else if (dbProduct.contains("h2") || dbProduct.contains("sqlite") || dbProduct.contains("derby")) {
+                result.add(extractDatabaseName(profile.getJdbcUrl()));
+            } else if (dbProduct.contains("oracle")) {
+                try (ResultSet rs = conn.createStatement()
+                        .executeQuery("SELECT username FROM all_users ORDER BY username")) {
+                    while (rs.next()) result.add(rs.getString("username"));
+                }
+            } else if (dbProduct.contains("db2")) {
+                try (ResultSet rs = conn.createStatement()
+                        .executeQuery("SELECT name FROM syscat.databases")) {
+                    while (rs.next()) result.add(rs.getString("name"));
+                }
+            } else if (dbProduct.contains("sybase") || dbProduct.contains("sap")) {
+                try (ResultSet rs = meta.getCatalogs()) {
+                    while (rs.next()) result.add(rs.getString("TABLE_CAT"));
+                }
+            } else {
+                try (ResultSet rs = meta.getCatalogs()) {
+                    while (rs.next()) result.add(rs.getString("TABLE_CAT"));
+                }
+            }
+        }
+
         return result;
     }
 
     public List<String> listTables(ConnectionProfile profile, String databaseName) {
-        System.out.println("profile="+profile.getJdbcUrl());
         List<String> result = new ArrayList<>();
         try {
             if (isMongo(profile)) {
@@ -834,5 +829,56 @@ public class ConnectionService {
         if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) return "`" + column + "`";
         if (dbProduct.contains("postgresql")) return "\"" + column + "\"";
         return column;
+    }
+
+
+
+    public static String addPagination(String jdbcUrl, String sql, int page, int size) {
+        int offset = (page - 1) * size;
+        String lowerSql = sql.trim().toLowerCase();
+
+        if (!lowerSql.startsWith("select")) return sql; // Only paginate SELECTs
+
+        if (jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:") || jdbcUrl.startsWith("jdbc:sqlite:")) {
+            return sql + " LIMIT " + size + " OFFSET " + offset;
+        } else if (jdbcUrl.startsWith("jdbc:postgresql:")) {
+            return sql + " LIMIT " + size + " OFFSET " + offset;
+        } else if (jdbcUrl.startsWith("jdbc:sqlserver:")) {
+            if (!lowerSql.contains("order by")) sql += " ORDER BY (SELECT NULL)";
+            return sql + " OFFSET " + offset + " ROWS FETCH NEXT " + size + " ROWS ONLY";
+        } else if (jdbcUrl.startsWith("jdbc:oracle:")) {
+            return "SELECT * FROM (" + sql + ") OFFSET " + offset + " ROWS FETCH NEXT " + size + " ROWS ONLY";
+        }
+        return sql;
+    }
+
+    // Mongo paginated
+    public List<List<Object>> executeMongoQueryPaginated(ConnectionProfile profile, String query, int page, int size) {
+        List<List<Object>> results = new ArrayList<>();
+        try (MongoClient client = createMongoClient(profile)) {
+            MongoDatabase db = client.getDatabase(new ConnectionString(profile.getMongoUri()).getDatabase());
+
+            String collectionName = query;
+            Document filter = new Document();
+
+            if (query.contains("|")) {
+                String[] parts = query.split("\\|", 2);
+                collectionName = parts[0].trim();
+                String jsonFilter = parts[1].trim();
+                if (!jsonFilter.isEmpty()) filter = Document.parse(jsonFilter);
+            }
+
+            MongoCollection<Document> collection = db.getCollection(collectionName);
+
+            int offset = (page - 1) * size;
+            for (Document doc : collection.find(filter).skip(offset).limit(size)) {
+                List<Object> row = new ArrayList<>();
+                doc.forEach((k, v) -> row.add(k + "=" + v));
+                results.add(row);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return results;
     }
 }
