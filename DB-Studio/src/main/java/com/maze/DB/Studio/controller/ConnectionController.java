@@ -18,6 +18,7 @@ import java.io.ByteArrayOutputStream;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import static com.maze.DB.Studio.util.JdbcUrlParser.extractDatabaseName;
 import static com.maze.DB.Studio.util.JdbcUrlParser.extractHost;
@@ -136,70 +137,81 @@ public class ConnectionController {
         model.addAttribute("pageSize", size);
 
         try {
+            String trimmedSql = sql.trim().toUpperCase(Locale.ROOT);
+            boolean isSelectQuery = trimmedSql.startsWith("SELECT");
+
+            if (!isSelectQuery) {
+                // Non-SELECT query (UPDATE / INSERT / DELETE)
+                try (Connection conn = service.getConnection(profile);
+                     Statement stmt = conn.createStatement()) {
+
+                    int updateCount = stmt.executeUpdate(sql);
+                    model.addAttribute("message", "Query executed successfully. " + updateCount + " row(s) affected.");
+                    model.addAttribute("isLastPage", true);
+                    return;
+                }
+            }
+
+            // SELECT query with pagination
             List<List<Object>> results;
             boolean isLastPage;
-            int fetchSize = size + 1; // Fetch one more row than needed to detect last page
+            int fetchSize = size + 1; // fetch one extra row to detect next page
 
             if (isMongo(profile)) {
                 results = service.executeMongoQueryPaginated(profile, sql, page, fetchSize);
                 isLastPage = results.size() <= size;
-                if (results.size() > size) {
-                    results = results.subList(0, size);
-                }
-                // Header row for Mongo: try to infer from first row if present
-                if (!results.isEmpty()) {
-                    model.addAttribute("resultColumns", results.get(0));
-                }
+                if (results.size() > size) results = results.subList(0, size);
+
+                if (!results.isEmpty()) model.addAttribute("resultColumns", results.get(0));
                 model.addAttribute("results", results);
                 model.addAttribute("isLastPage", isLastPage);
                 return;
             }
 
+            // JDBC pagination
             String paginatedSql = ConnectionService.addPagination(profile.getJdbcUrl(), sql, page, fetchSize);
 
             try (Connection conn = service.getConnection(profile);
                  Statement stmt = conn.createStatement()) {
-                boolean hasResultSet = stmt.execute(paginatedSql);
-                if (hasResultSet) {
-                    try (ResultSet rs = stmt.getResultSet()) {
-                        List<List<Object>> r = new ArrayList<>();
-                        ResultSetMetaData meta = rs.getMetaData();
-                        int colCount = meta.getColumnCount();
 
-                        List<Object> headers = new ArrayList<>();
-                        for (int i = 1; i <= colCount; i++) headers.add(meta.getColumnLabel(i));
-                        r.add(headers);
+                try (ResultSet rs = stmt.executeQuery(paginatedSql)) {
+                    ResultSetMetaData meta = rs.getMetaData();
+                    int colCount = meta.getColumnCount();
 
-                        int rowCount = 0;
-                        List<List<Object>> dataRows = new ArrayList<>();
-                        while (rs.next() && rowCount < fetchSize) {
-                            List<Object> row = new ArrayList<>();
-                            for (int i = 1; i <= colCount; i++) row.add(rs.getObject(i));
-                            dataRows.add(row);
-                            rowCount++;
-                        }
-                        isLastPage = dataRows.size() <= size;
-                        if (dataRows.size() > size) {
-                            dataRows = dataRows.subList(0, size);
-                        }
-                        r.addAll(dataRows);
-                        model.addAttribute("results", r);
-                        model.addAttribute("resultColumns", headers);
-                        model.addAttribute("isLastPage", isLastPage);
-                        model.addAttribute("message", "Query executed successfully.");
+                    // headers
+                    List<Object> headers = new ArrayList<>();
+                    for (int i = 1; i <= colCount; i++) headers.add(meta.getColumnLabel(i));
+
+                    // data rows
+                    List<List<Object>> dataRows = new ArrayList<>();
+                    int rowCount = 0;
+                    while (rs.next() && rowCount < fetchSize) {
+                        List<Object> row = new ArrayList<>();
+                        for (int i = 1; i <= colCount; i++) row.add(rs.getObject(i));
+                        dataRows.add(row);
+                        rowCount++;
                     }
-                } else {
-                    int updateCount = stmt.getUpdateCount();
-                    model.addAttribute("message", "Query executed, " + updateCount + " row(s) affected.");
-                    model.addAttribute("isLastPage", true);
-                }
 
+                    isLastPage = dataRows.size() <= size;
+                    if (dataRows.size() > size) dataRows = dataRows.subList(0, size);
+
+                    List<List<Object>> allRows = new ArrayList<>();
+                    allRows.add(headers);
+                    allRows.addAll(dataRows);
+
+                    model.addAttribute("results", allRows);
+                    model.addAttribute("resultColumns", headers);
+                    model.addAttribute("isLastPage", isLastPage);
+                    model.addAttribute("message", "Query executed successfully.");
+                }
             }
+
         } catch (Exception e) {
             model.addAttribute("error", "Query Error: " + service.getFriendlyErrorMessage(e, profile));
             model.addAttribute("isLastPage", true);
         }
     }
+
 
     private String updateJdbcUrl(String jdbcUrl, String database) {
         jdbcUrl = jdbcUrl.trim();

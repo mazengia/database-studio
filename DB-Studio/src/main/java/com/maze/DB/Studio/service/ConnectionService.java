@@ -248,19 +248,7 @@ public class ConnectionService {
         return columns;
     }
 
-    // ----------------- Execute SQL Queries -----------------
-    public List<List<Object>> executeSelectQuery(ConnectionProfile profile, String sql) throws Exception {
-        List<List<Object>> results = new ArrayList<>();
-        if (isMongo(profile)) return executeMongoQuery(profile, sql);
 
-        Class.forName(profile.getDriverClassName());
-        try (Connection conn = DriverManager.getConnection(profile.getJdbcUrl(), profile.getUsername(), profile.getPassword());
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            results = ResultSetUtil.resultSetToList(rs);
-        }
-        return results;
-    }
 
 
     // ----------------- Execute Mongo Queries -----------------
